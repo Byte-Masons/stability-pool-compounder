@@ -1,0 +1,30 @@
+node_modules
+.env
+.DS_Store
+coverage
+coverage.json
+typechain
+typechain-types
+
+#Hardhat files
+cache_hardhat
+artifacts
+
+#Forge files
+forge-cache
+out
+
+# Compiler files
+cache/
+out/
+
+# Ignores development broadcast logs
+!/broadcast
+/broadcast/*/31337/
+/broadcast/**/dry-run/
+
+# Docs
+docs/
+
+# Dotenv file
+.env

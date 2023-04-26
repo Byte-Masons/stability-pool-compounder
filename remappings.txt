@@ -1,0 +1,6 @@
+vault-v2/=lib/vault-v2/src/
+mixins/=lib/mixins/src/
+ds-test/=lib/forge-std/lib/ds-test/src/
+forge-std/=lib/forge-std/src/
+oz-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/
+oz/=lib/openzeppelin-contracts/contracts/

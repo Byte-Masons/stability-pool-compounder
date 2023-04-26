@@ -1,0 +1,33 @@
+{
+  "name": "multi-strat-template",
+  "version": "1.0.0",
+  "description": "Use for new strategy repos meant for multi-strat vaults",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib",
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "prepare": "husky install",
+    "eslint": "eslint ."
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Byte-Masons/multi-strat-template.git"
+  },
+  "author": "tess3rac7",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Byte-Masons/multi-strat-template/issues"
+  },
+  "homepage": "https://github.com/Byte-Masons/multi-strat-template#readme",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-foundry": "^1.0.1",
+    "@openzeppelin/hardhat-upgrades": "^1.22.1",
+    "dotenv": "^16.0.3",
+    "eslint": "^8.39.0",
+    "hardhat": "^2.14.0",
+    "husky": "^8.0.3"
+  }
+}
