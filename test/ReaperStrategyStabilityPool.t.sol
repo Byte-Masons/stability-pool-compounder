@@ -41,8 +41,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
     address public oathAddress = 0x39FdE572a18448F8139b7788099F0a0740f51205;
     address public opAddress = 0x4200000000000000000000000000000000000042;
 
-    address public wantHolderAddr = 0x503E82b4b771D81d30060545Db0133770227757B;
     address public strategistAddr = 0x1A20D7A31e5B3Bc5f02c8A146EF6f394502a10c4;
+    address public wantHolderAddr = strategistAddr;
 
     address public borrowerOperationsAddress = 0x0a4582d3d9ecBAb80a66DAd8A881BE3b771d3e5B;
     address public oathOwner = 0x80A16016cC4A2E6a2CACA8a4a498b1699fF0f844;
@@ -124,6 +124,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
         vm.prank(wantHolderAddr);
         want.approve(address(vault), type(uint256).max);
+        deal({token: address(want), to: wantHolderAddr, give: _toWant(1000)});
 
         for (uint256 i = 0; i < keepers.length; i++) {
             address keeper = keepers[i];
@@ -627,5 +628,9 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
     function liquidateTroves(address asset) internal {
         ITroveManager(troveManager).liquidateTroves(asset, 10);
+    }
+
+    function _toWant(uint256 amount) internal returns (uint256) {
+        return amount * (10 ** want.decimals());
     }
 }
