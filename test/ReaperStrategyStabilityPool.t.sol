@@ -89,7 +89,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
     function setUp() public {
         // Forking
-        optimismFork = vm.createSelectFork("https://endpoints.omniatech.io/v1/op/mainnet/public", 91446107);
+        optimismFork = vm.createSelectFork("https://mainnet.optimism.io", 91446107);
         assertEq(vm.activeFork(), optimismFork);
 
         // // Deploying stuff

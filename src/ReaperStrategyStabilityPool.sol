@@ -26,10 +26,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     IPriceFeed public priceFeed;
     IERC20MetadataUpgradeable public oath;
     IERC20MetadataUpgradeable public usdc;
-    address public veloRouter;
-    address public balVault;
-    address public uniV3Router;
-    address public uniV3Quoter;
+    ExchangeSettings public exchangeSettings;
 
     uint256 public constant ETHOS_PRICE_PRECISION = 1 ether;
     uint256 public constant ETHOS_DECIMALS = 18;
@@ -85,10 +82,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         priceFeed = IPriceFeed(_priceFeed);
         oath = IERC20MetadataUpgradeable(_oath);
         usdc = IERC20MetadataUpgradeable(_usdc);
-        veloRouter = _exchangeSettings.veloRouter;
-        balVault = _exchangeSettings.balVault;
-        uniV3Router = _exchangeSettings.uniV3Router;
-        uniV3Quoter = _exchangeSettings.uniV3Quoter;
+        exchangeSettings = _exchangeSettings;
 
         minAmountOutBPS = 9900;
         ernMinAmountOutBPS = 9200;
@@ -175,13 +169,13 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
                 uint256 assetValue = _getUSDEquivalentOfCollateral(asset, collateralBalance);
                 uint256 minAmountOut = (assetValue * minAmountOutBPS) / PERCENT_DIVISOR;
                 uint256 scaledMinAmountOut = _getScaledToCollAmount(minAmountOut, usdc.decimals());
-                _swapUniV3(asset, address(usdc), collateralBalance, scaledMinAmountOut, uniV3Router, uniV3Quoter);
+                _swapUniV3(asset, address(usdc), collateralBalance, scaledMinAmountOut, exchangeSettings.uniV3Router, exchangeSettings.uniV3Quoter);
             }
         }
 
         uint256 oathBalance = oath.balanceOf(address(this));
         if (oathBalance != 0) {
-            _swapVelo(address(oath), address(usdc), oathBalance, 0, veloRouter);
+            _swapVelo(address(oath), address(usdc), oathBalance, 0, exchangeSettings.veloRouter);
         }
 
         uint256 usdcBalance = usdc.balanceOf(address(this));
@@ -192,9 +186,9 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
             if (usdcToErnExchange == Exchange.Beethoven) {
                 _swapBal(address(usdc), want, usdcBalance, minAmountOut);
             } else if (usdcToErnExchange == Exchange.Velodrome) {
-                _swapVelo(address(usdc), want, usdcBalance, minAmountOut, veloRouter);
+                _swapVelo(address(usdc), want, usdcBalance, minAmountOut, exchangeSettings.veloRouter);
             } else if (usdcToErnExchange == Exchange.UniV3) {
-                _swapUniV3(address(usdc), want, usdcBalance, minAmountOut, uniV3Router, uniV3Quoter);
+                _swapUniV3(address(usdc), want, usdcBalance, minAmountOut, exchangeSettings.uniV3Router, exchangeSettings.uniV3Quoter);
             }
         }
     }
@@ -266,7 +260,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     }
 
     function _balVault() internal view override returns (address) {
-        return balVault;
+        return exchangeSettings.balVault;
     }
 
     function _hasInitialDeposit(address _user) internal view returns (bool) {
