@@ -6,9 +6,11 @@ import "forge-std/Test.sol";
 import "forge-std/console.sol";
 import "src/ReaperStrategyStabilityPool.sol";
 import "vault-v2/ReaperVaultV2.sol";
+import "mixins/interfaces/IVeloRouter.sol";
 import "src/mocks/MockAggregator.sol";
 import "src/interfaces/ITroveManager.sol";
 import "src/interfaces/IStabilityPool.sol";
+import "src/interfaces/IVelodromePair.sol";
 import {IERC20Mintable} from "src/interfaces/IERC20Mintable.sol";
 import {ERC1967Proxy} from "oz/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC20Upgradeable} from "oz-upgradeable/token/ERC20/IERC20Upgradeable.sol";
@@ -29,6 +31,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
     address public balVault = 0xBA12222222228d8Ba445958a75a0704d566BF2C8;
     address public uniV3Router = 0xE592427A0AEce92De3Edee1F18E0157C05861564;
     address public uniV3Quoter = 0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6;
+    address public veloUsdcErnPool = 0x55624DC97289A19045b4739627BEaEB1E70Ab64c;
+    address public chainlinkUsdcOracle = 0x16a9FA2FDa030272Ce99B29CF780dFA30361E0f3;
 
     address public superAdminAddress = 0x9BC776dBb134Ef9D7014dB1823Cd755Ac5015203;
     address public adminAddress = 0xeb9C9b785aA7818B2EBC8f9842926c4B9f707e4B;
@@ -89,7 +93,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
     function setUp() public {
         // Forking
-        optimismFork = vm.createSelectFork("https://mainnet.optimism.io", 91446107);
+        optimismFork = vm.createSelectFork("https://opt-mainnet.g.alchemy.com/v2/demo", 96499629);
         assertEq(vm.activeFork(), optimismFork);
 
         // // Deploying stuff
@@ -115,7 +119,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
             oathAddress,
             usdcAddress,
             balErnPoolId,
-            exchangeSettings
+            exchangeSettings,
+            chainlinkUsdcOracle
         );
 
         uint256 feeBPS = 500;
@@ -201,7 +206,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         IERC20Mintable(opAddress).approve(address(wrappedProxy), opBalance);
 
         wrappedProxy.updateMinAmountOutBPS(9900);
-        wrappedProxy.updateErnMinAmountOutBPS(9200);
+        wrappedProxy.updateErnMinAmountOutBPS(9440);
 
         ReaperStrategyStabilityPool.Exchange currentExchange = ReaperStrategyStabilityPool.Exchange.Velodrome;
         wrappedProxy.setUsdcToErnExchange(currentExchange);
@@ -604,14 +609,14 @@ contract ReaperStrategyStabilityPoolTest is Test {
         mockChainlink2.setUpdateTime(block.timestamp);
 
         vm.startPrank(priceFeedOwnerAddress);
-        IPriceFeed(priceFeedAddress).updateChainlinkAggregator(wethAddress, address(mockChainlink));
+        // IPriceFeed(priceFeedAddress).updateChainlinkAggregator(wethAddress, address(mockChainlink));
         IPriceFeed(priceFeedAddress).updateChainlinkAggregator(wbtcAddress, address(mockChainlink2));
         vm.stopPrank();
 
         uint256 rewardTokenGain = IStabilityPool(stabilityPoolAddress).getDepositorLQTYGain(address(wrappedProxy));
 
         liquidateTroves(wbtcAddress);
-        liquidateTroves(wethAddress);
+        // liquidateTroves(wethAddress);
 
         wrappedProxy.harvest();
         skip(timeToSkip);
@@ -626,8 +631,55 @@ contract ReaperStrategyStabilityPoolTest is Test {
         assertGt(sharePrice4, sharePrice1);
     }
 
+    function testVeloTWAP() public {
+        console.log("testVeloTWAP");
+        IVelodromePair pool = IVelodromePair(veloUsdcErnPool);
+        uint256 currentPrice = pool.current(address(want), 1 ether);
+        console.log("currentPrice: ", currentPrice);
+        uint256 currentPriceQuote1 = pool.quote(address(want), 1 ether, 1);
+        console.log("currentPriceQuote1: ", currentPriceQuote1);
+        uint256 currentPriceQuote2 = pool.quote(address(want), 1 ether, 2);
+        console.log("currentPriceQuote2: ", currentPriceQuote2);
+        uint256 currentPriceQuote3 = pool.quote(address(want), 1 ether, 3);
+        console.log("currentPriceQuote3: ", currentPriceQuote3);
+        uint256 currentPriceQuote4 = pool.quote(address(want), 1 ether, 4);
+        console.log("currentPriceQuote4: ", currentPriceQuote4);
+        uint256 currentPriceQuote5 = pool.quote(address(want), 1 ether, 5);
+        console.log("currentPriceQuote5: ", currentPriceQuote5);
+
+        address dumpourBob = makeAddr("bob");
+        uint256 usdcUnit = 10 ** 6;
+        uint256 usdcToDump = 4_000_000 * usdcUnit;
+        deal({token: usdcAddress, to: dumpourBob, give: usdcToDump});
+
+        IVeloRouter router = IVeloRouter(veloRouter);
+        IVeloRouter.route[] memory routes = new IVeloRouter.route[](1);
+        routes[0] = IVeloRouter.route({ from: usdcAddress, to: wantAddress, stable: true });
+        vm.startPrank(dumpourBob);
+        IERC20(usdcAddress).approve(veloRouter, usdcToDump);
+        uint256 minAmountOut = 0;
+        router.swapExactTokensForTokens(usdcToDump - usdcUnit, minAmountOut, routes, dumpourBob, block.timestamp);
+
+        uint256 timeToSkip = 60 * 30;
+        skip(timeToSkip);
+        router.swapExactTokensForTokens(usdcUnit, minAmountOut, routes, dumpourBob, block.timestamp);
+        
+        uint256 dumpedPrice = pool.current(address(want), 1 ether);
+        console.log("dumpedPrice: ", dumpedPrice);
+        uint256 dumpedPriceQuote = pool.quote(address(want), 1 ether, 1);
+        console.log("dumpedPriceQuote1: ", dumpedPriceQuote);
+        dumpedPriceQuote = pool.quote(address(want), 1 ether, 2);
+        console.log("dumpedPriceQuote2: ", dumpedPriceQuote);
+        dumpedPriceQuote = pool.quote(address(want), 1 ether, 3);
+        console.log("dumpedPriceQuote3: ", dumpedPriceQuote);
+        dumpedPriceQuote = pool.quote(address(want), 1 ether, 4);
+        console.log("dumpedPriceQuote4: ", dumpedPriceQuote);
+        dumpedPriceQuote = pool.quote(address(want), 1 ether, 5);
+        console.log("dumpedPriceQuote5: ", dumpedPriceQuote);
+    }
+
     function liquidateTroves(address asset) internal {
-        ITroveManager(troveManager).liquidateTroves(asset, 10);
+        ITroveManager(troveManager).liquidateTroves(asset, 100);
     }
 
     function _toWant(uint256 amount) internal returns (uint256) {

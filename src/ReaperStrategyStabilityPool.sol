@@ -27,6 +27,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     IERC20MetadataUpgradeable public oath;
     IERC20MetadataUpgradeable public usdc;
     ExchangeSettings public exchangeSettings;
+    AggregatorV3Interface public chainlinkUsdcOracle;
 
     uint256 public constant ETHOS_PRICE_PRECISION = 1 ether;
     uint256 public constant ETHOS_DECIMALS = 18;
@@ -63,7 +64,8 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         address _oath,
         address _usdc,
         bytes32 _balErnPoolID,
-        ExchangeSettings calldata _exchangeSettings
+        ExchangeSettings calldata _exchangeSettings,
+        address _chainlinkUsdcOracle
     ) public initializer {
         require(_vault != address(0), "vault is 0 address");
         require(_want != address(0), "want is 0 address");
@@ -94,6 +96,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         veloSwapPaths[_usdc][_want] = usdcErnPath;
         uniV3SwapPaths[_usdc][_want] = usdcErnPath;
         balSwapPoolIDs[_usdc][_want] = _balErnPoolID;
+        chainlinkUsdcOracle = AggregatorV3Interface(_chainlinkUsdcOracle);
     }
 
     function _adjustPosition(uint256 _debt) internal override {
@@ -167,7 +170,8 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
             uint256 collateralBalance = IERC20MetadataUpgradeable(asset).balanceOf(address(this));
             if (collateralBalance != 0) {
                 uint256 assetValue = _getUSDEquivalentOfCollateral(asset, collateralBalance);
-                uint256 minAmountOut = (assetValue * minAmountOutBPS) / PERCENT_DIVISOR;
+                uint256 assetValueUsdc = assetValue * _getUsdcPrice() / (10 ** _getUsdcDecimals());
+                uint256 minAmountOut = (assetValueUsdc * minAmountOutBPS) / PERCENT_DIVISOR;
                 uint256 scaledMinAmountOut = _getScaledToCollAmount(minAmountOut, usdc.decimals());
                 _swapUniV3(asset, address(usdc), collateralBalance, scaledMinAmountOut, exchangeSettings.uniV3Router, exchangeSettings.uniV3Quoter);
             }
@@ -248,6 +252,10 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
             uint256 amount = amounts[i] + IERC20MetadataUpgradeable(asset).balanceOf(address(this));
             collateralGain += _getUSDEquivalentOfCollateral(asset, amount);
         }
+        uint256 usdcBalance = usdc.balanceOf(address(this));
+        uint256 usdcValue = _getUSDEquivalentOfUsdc(usdcBalance);
+
+        collateralGain += usdcValue;
     }
 
     // Returns USD equivalent of {_amount} of {_collateral} with 18 digits of decimal precision.
@@ -259,12 +267,29 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         return USDAssetValue;
     }
 
+    function _getUSDEquivalentOfUsdc(uint256 _amount) internal view returns (uint256) {
+        uint256 scaledAmount = _getScaledFromCollAmount(_amount, usdc.decimals());
+        uint256 price = _getUsdcPrice();
+        uint256 USDAssetValue = (scaledAmount * price) / (10 ** _getUsdcDecimals());
+        return USDAssetValue;
+    }
+
     function _balVault() internal view override returns (address) {
         return exchangeSettings.balVault;
     }
 
     function _hasInitialDeposit(address _user) internal view returns (bool) {
         return stabilityPool.deposits(_user).initialValue != 0;
+    }
+
+    function _getUsdcPrice() internal view returns (uint256 price) {
+        AggregatorV3Interface aggregator = AggregatorV3Interface(chainlinkUsdcOracle);
+        price = uint256(aggregator.latestAnswer());
+    }
+
+    function _getUsdcDecimals() internal view returns (uint256 decimals) {
+        AggregatorV3Interface aggregator = AggregatorV3Interface(chainlinkUsdcOracle);
+        decimals = uint256(aggregator.decimals());
     }
 
     function _getCollateralPrice(address _collateral) internal view returns (uint256 price) {
