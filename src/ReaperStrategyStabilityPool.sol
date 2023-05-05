@@ -334,4 +334,11 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         _atLeastRole(STRATEGIST);
         usdcToErnExchange = _exchange;
     }
+
+    function _getFeeCandidates() internal override returns (uint24[] memory) {
+        uint24[] memory feeCandidates = new uint24[](2);
+        feeCandidates[0] = 500;
+        feeCandidates[1] = 3_000;
+        return feeCandidates;
+    }
 }
