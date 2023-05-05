@@ -8,6 +8,7 @@ import {IPriceFeed} from "./interfaces/IPriceFeed.sol";
 import {IVault} from "vault-v2/interfaces/IVault.sol";
 import {ICollateralConfig} from "./interfaces/ICollateralConfig.sol";
 import {AggregatorV3Interface} from "./interfaces/AggregatorV3Interface.sol";
+import {IVelodromePair} from "./interfaces/IVelodromePair.sol";
 import {VeloSolidMixin} from "mixins/VeloSolidMixin.sol";
 import {UniV3Mixin} from "mixins/UniV3Mixin.sol";
 import {BalMixin} from "mixins/BalMixin.sol";
@@ -28,11 +29,13 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     IERC20MetadataUpgradeable public usdc;
     ExchangeSettings public exchangeSettings;
     AggregatorV3Interface public chainlinkUsdcOracle;
+    IVelodromePair public veloUsdcErnPool;
 
     uint256 public constant ETHOS_PRICE_PRECISION = 1 ether;
     uint256 public constant ETHOS_DECIMALS = 18;
     uint256 public minAmountOutBPS;
     uint256 public ernMinAmountOutBPS;
+    uint256 public veloUsdcErnQuoteGranularity;
 
     enum Exchange {
         Velodrome,
@@ -49,6 +52,11 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         address uniV3Quoter;
     }
 
+    struct Pools {
+        address stabilityPool;
+        address veloUsdcErnPool;
+    }
+
     /**
      * @dev Initializes the strategy. Sets parameters, saves routes, and gives allowances.
      * @notice see documentation for each variable above its respective declaration.
@@ -59,17 +67,18 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         address[] memory _multisigRoles,
         address[] memory _keepers,
         address _want,
-        address _stabilityPool,
         address _priceFeed,
         address _oath,
         address _usdc,
         bytes32 _balErnPoolID,
         ExchangeSettings calldata _exchangeSettings,
-        address _chainlinkUsdcOracle
+        address _chainlinkUsdcOracle,
+        Pools calldata _pools
     ) public initializer {
         require(_vault != address(0), "vault is 0 address");
         require(_want != address(0), "want is 0 address");
-        require(_stabilityPool != address(0), "stabilityPool is 0 address");
+        require(_pools.stabilityPool != address(0), "stabilityPool is 0 address");
+        require(_pools.veloUsdcErnPool != address(0), "veloUsdcErnPool is 0 address");
         require(_priceFeed != address(0), "priceFeed is 0 address");
         require(_oath != address(0), "oath is 0 address");
         require(_usdc != address(0), "usdc is 0 address");
@@ -77,17 +86,18 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         require(_exchangeSettings.balVault != address(0), "balVault is 0 address");
         require(_exchangeSettings.uniV3Router != address(0), "uniV3Router is 0 address");
         require(_exchangeSettings.uniV3Quoter != address(0), "uniV3Quoter is 0 address");
+        require(_chainlinkUsdcOracle != address(0), "chainlinkUsdcOracle is 0 address");
         require(_strategists.length != 0, "no strategists");
         require(_multisigRoles.length == 3, "invalid amount of multisig roles");
         __ReaperBaseStrategy_init(_vault, _want, _strategists, _multisigRoles, _keepers);
-        stabilityPool = IStabilityPool(_stabilityPool);
+        stabilityPool = IStabilityPool(_pools.stabilityPool);
         priceFeed = IPriceFeed(_priceFeed);
         oath = IERC20MetadataUpgradeable(_oath);
         usdc = IERC20MetadataUpgradeable(_usdc);
         exchangeSettings = _exchangeSettings;
 
-        minAmountOutBPS = 9900;
-        ernMinAmountOutBPS = 9200;
+        minAmountOutBPS = 9950;
+        ernMinAmountOutBPS = 9950;
         usdcToErnExchange = Exchange.Velodrome;
 
         address[] memory usdcErnPath = new address[](2);
@@ -97,6 +107,8 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         uniV3SwapPaths[_usdc][_want] = usdcErnPath;
         balSwapPoolIDs[_usdc][_want] = _balErnPoolID;
         chainlinkUsdcOracle = AggregatorV3Interface(_chainlinkUsdcOracle);
+        veloUsdcErnPool = IVelodromePair(_pools.veloUsdcErnPool);
+        veloUsdcErnQuoteGranularity = 2;
     }
 
     function _adjustPosition(uint256 _debt) internal override {
@@ -184,15 +196,16 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
 
         uint256 usdcBalance = usdc.balanceOf(address(this));
         if (usdcBalance != 0) {
-            // assumes 1 ERN = 1 USDC
+            uint256 currentPriceQuote = veloUsdcErnPool.quote(address(want), 1 ether, veloUsdcErnQuoteGranularity); // Get the amount of USDC for 1 ERN
             uint256 scaledUsdcBalance = _getScaledFromCollAmount(usdcBalance, usdc.decimals());
             uint256 minAmountOut = (scaledUsdcBalance * ernMinAmountOutBPS) / PERCENT_DIVISOR;
+            uint256 priceAdjustedMinAmountOut = minAmountOut * (10 ** usdc.decimals()) / currentPriceQuote;
             if (usdcToErnExchange == Exchange.Beethoven) {
-                _swapBal(address(usdc), want, usdcBalance, minAmountOut);
+                _swapBal(address(usdc), want, usdcBalance, priceAdjustedMinAmountOut);
             } else if (usdcToErnExchange == Exchange.Velodrome) {
-                _swapVelo(address(usdc), want, usdcBalance, minAmountOut, exchangeSettings.veloRouter);
+                _swapVelo(address(usdc), want, usdcBalance, priceAdjustedMinAmountOut, exchangeSettings.veloRouter);
             } else if (usdcToErnExchange == Exchange.UniV3) {
-                _swapUniV3(address(usdc), want, usdcBalance, minAmountOut, exchangeSettings.uniV3Router, exchangeSettings.uniV3Quoter);
+                _swapUniV3(address(usdc), want, usdcBalance, priceAdjustedMinAmountOut, exchangeSettings.uniV3Router, exchangeSettings.uniV3Quoter);
             }
         }
     }
@@ -365,5 +378,11 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         feeCandidates[0] = 500;
         feeCandidates[1] = 3_000;
         return feeCandidates;
+    }
+
+    function updateVeloUsdcErnQuoteGranularity(uint256 _veloUsdcErnQuoteGranularity) external {
+        _atLeastRole(STRATEGIST);
+        require(_veloUsdcErnQuoteGranularity >= 2 && _veloUsdcErnQuoteGranularity <= 10, "Invalid granularity value");
+        veloUsdcErnQuoteGranularity = _veloUsdcErnQuoteGranularity;
     }
 }

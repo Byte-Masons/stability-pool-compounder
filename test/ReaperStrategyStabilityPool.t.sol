@@ -108,19 +108,24 @@ contract ReaperStrategyStabilityPoolTest is Test {
         exchangeSettings.balVault = balVault;
         exchangeSettings.uniV3Router = uniV3Router;
         exchangeSettings.uniV3Quoter = uniV3Quoter;
+
+        ReaperStrategyStabilityPool.Pools memory pools;
+        pools.stabilityPool = stabilityPoolAddress;
+        pools.veloUsdcErnPool = veloUsdcErnPool;
+
         wrappedProxy.initialize(
             address(vault),
             strategists,
             multisigRoles,
             keepers,
             wantAddress,
-            stabilityPoolAddress,
             priceFeedAddress,
             oathAddress,
             usdcAddress,
             balErnPoolId,
             exchangeSettings,
-            chainlinkUsdcOracle
+            chainlinkUsdcOracle,
+            pools
         );
 
         uint256 feeBPS = 500;
@@ -205,8 +210,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
         vm.prank(opHolder);
         IERC20Mintable(opAddress).approve(address(wrappedProxy), opBalance);
 
-        wrappedProxy.updateMinAmountOutBPS(9900);
-        wrappedProxy.updateErnMinAmountOutBPS(9440);
+        wrappedProxy.updateMinAmountOutBPS(9950);
+        wrappedProxy.updateErnMinAmountOutBPS(9950);
 
         ReaperStrategyStabilityPool.Exchange currentExchange = ReaperStrategyStabilityPool.Exchange.Velodrome;
         wrappedProxy.setUsdcToErnExchange(currentExchange);
