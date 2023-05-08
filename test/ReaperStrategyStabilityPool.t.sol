@@ -627,7 +627,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         skip(timeToSkip);
         uint256 sharePrice4 = vault.getPricePerFullShare();
 
-        wrappedProxy.getCollateralGain();
+        wrappedProxy.getWantValueInCollateral();
 
         console.log("sharePrice1: ", sharePrice1);
         console.log("sharePrice2: ", sharePrice2);
