@@ -89,7 +89,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         require(_exchangeSettings.uniV3Quoter != address(0), "uniV3Quoter is 0 address");
         require(_pools.stabilityPool != address(0), "stabilityPool is 0 address");
         require(_pools.veloUsdcErnPool != address(0), "veloUsdcErnPool is 0 address");
-        
+
         __ReaperBaseStrategy_init(_vault, _want, _strategists, _multisigRoles, _keepers);
         stabilityPool = IStabilityPool(_pools.stabilityPool);
         priceFeed = IPriceFeed(_priceFeed);
@@ -189,7 +189,14 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
                 uint256 assetValueUsdc = assetValue * _getUsdcPrice() / (10 ** _getUsdcDecimals());
                 uint256 minAmountOut = (assetValueUsdc * minAmountOutBPS) / PERCENT_DIVISOR;
                 uint256 scaledMinAmountOut = _getScaledToCollAmount(minAmountOut, usdc.decimals());
-                _swapUniV3(asset, address(usdc), collateralBalance, scaledMinAmountOut, exchangeSettings.uniV3Router, exchangeSettings.uniV3Quoter);
+                _swapUniV3(
+                    asset,
+                    address(usdc),
+                    collateralBalance,
+                    scaledMinAmountOut,
+                    exchangeSettings.uniV3Router,
+                    exchangeSettings.uniV3Quoter
+                );
             }
         }
 
@@ -209,7 +216,14 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
             } else if (usdcToErnExchange == Exchange.Velodrome) {
                 _swapVelo(address(usdc), want, usdcBalance, priceAdjustedMinAmountOut, exchangeSettings.veloRouter);
             } else if (usdcToErnExchange == Exchange.UniV3) {
-                _swapUniV3(address(usdc), want, usdcBalance, priceAdjustedMinAmountOut, exchangeSettings.uniV3Router, exchangeSettings.uniV3Quoter);
+                _swapUniV3(
+                    address(usdc),
+                    want,
+                    usdcBalance,
+                    priceAdjustedMinAmountOut,
+                    exchangeSettings.uniV3Router,
+                    exchangeSettings.uniV3Quoter
+                );
             }
         }
     }

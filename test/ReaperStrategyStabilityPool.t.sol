@@ -655,7 +655,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
         IVeloRouter router = IVeloRouter(veloRouter);
         IVeloRouter.route[] memory routes = new IVeloRouter.route[](1);
-        routes[0] = IVeloRouter.route({ from: usdcAddress, to: wantAddress, stable: true });
+        routes[0] = IVeloRouter.route({from: usdcAddress, to: wantAddress, stable: true});
         vm.startPrank(dumpourBob);
         IERC20(usdcAddress).approve(veloRouter, usdcToDump);
         uint256 minAmountOut = 0;
@@ -664,7 +664,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         uint256 timeToSkip = 60 * 30;
         skip(timeToSkip);
         router.swapExactTokensForTokens(usdcUnit, minAmountOut, routes, dumpourBob, block.timestamp);
-        
+
         uint256 dumpedPrice = pool.current(address(want), 1 ether);
         console.log("dumpedPrice: ", dumpedPrice);
         for (uint256 index = 1; index < iterations; index++) {
