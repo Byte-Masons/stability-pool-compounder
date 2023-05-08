@@ -70,24 +70,25 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         address _oath,
         address _usdc,
         bytes32 _balErnPoolID,
-        ExchangeSettings calldata _exchangeSettings,
         address _chainlinkUsdcOracle,
+        ExchangeSettings calldata _exchangeSettings,
         Pools calldata _pools
     ) public initializer {
         require(_vault != address(0), "vault is 0 address");
+        require(_strategists.length != 0, "no strategists");
+        require(_multisigRoles.length == 3, "invalid amount of multisig roles");
         require(_want != address(0), "want is 0 address");
-        require(_pools.stabilityPool != address(0), "stabilityPool is 0 address");
-        require(_pools.veloUsdcErnPool != address(0), "veloUsdcErnPool is 0 address");
         require(_priceFeed != address(0), "priceFeed is 0 address");
         require(_oath != address(0), "oath is 0 address");
         require(_usdc != address(0), "usdc is 0 address");
+        require(_chainlinkUsdcOracle != address(0), "chainlinkUsdcOracle is 0 address");
         require(_exchangeSettings.veloRouter != address(0), "veloRouter is 0 address");
         require(_exchangeSettings.balVault != address(0), "balVault is 0 address");
         require(_exchangeSettings.uniV3Router != address(0), "uniV3Router is 0 address");
         require(_exchangeSettings.uniV3Quoter != address(0), "uniV3Quoter is 0 address");
-        require(_chainlinkUsdcOracle != address(0), "chainlinkUsdcOracle is 0 address");
-        require(_strategists.length != 0, "no strategists");
-        require(_multisigRoles.length == 3, "invalid amount of multisig roles");
+        require(_pools.stabilityPool != address(0), "stabilityPool is 0 address");
+        require(_pools.veloUsdcErnPool != address(0), "veloUsdcErnPool is 0 address");
+        
         __ReaperBaseStrategy_init(_vault, _want, _strategists, _multisigRoles, _keepers);
         stabilityPool = IStabilityPool(_pools.stabilityPool);
         priceFeed = IPriceFeed(_priceFeed);

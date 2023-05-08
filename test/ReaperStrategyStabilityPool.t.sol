@@ -123,8 +123,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
             oathAddress,
             usdcAddress,
             balErnPoolId,
-            exchangeSettings,
             chainlinkUsdcOracle,
+            exchangeSettings,
             pools
         );
 
