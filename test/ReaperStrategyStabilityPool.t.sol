@@ -638,19 +638,15 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
     function testVeloTWAP() public {
         console.log("testVeloTWAP");
+        uint256 iterations = 20;
         IVelodromePair pool = IVelodromePair(veloUsdcErnPool);
         uint256 currentPrice = pool.current(address(want), 1 ether);
         console.log("currentPrice: ", currentPrice);
-        uint256 currentPriceQuote1 = pool.quote(address(want), 1 ether, 1);
-        console.log("currentPriceQuote1: ", currentPriceQuote1);
-        uint256 currentPriceQuote2 = pool.quote(address(want), 1 ether, 2);
-        console.log("currentPriceQuote2: ", currentPriceQuote2);
-        uint256 currentPriceQuote3 = pool.quote(address(want), 1 ether, 3);
-        console.log("currentPriceQuote3: ", currentPriceQuote3);
-        uint256 currentPriceQuote4 = pool.quote(address(want), 1 ether, 4);
-        console.log("currentPriceQuote4: ", currentPriceQuote4);
-        uint256 currentPriceQuote5 = pool.quote(address(want), 1 ether, 5);
-        console.log("currentPriceQuote5: ", currentPriceQuote5);
+        for (uint256 index = 1; index < iterations; index++) {
+            uint256 currentPriceQuote = pool.quote(address(want), 1 ether, index);
+            console.log("currentPriceQuote", index);
+            console.log(currentPriceQuote);
+        }
 
         address dumpourBob = makeAddr("bob");
         uint256 usdcUnit = 10 ** 6;
@@ -671,16 +667,11 @@ contract ReaperStrategyStabilityPoolTest is Test {
         
         uint256 dumpedPrice = pool.current(address(want), 1 ether);
         console.log("dumpedPrice: ", dumpedPrice);
-        uint256 dumpedPriceQuote = pool.quote(address(want), 1 ether, 1);
-        console.log("dumpedPriceQuote1: ", dumpedPriceQuote);
-        dumpedPriceQuote = pool.quote(address(want), 1 ether, 2);
-        console.log("dumpedPriceQuote2: ", dumpedPriceQuote);
-        dumpedPriceQuote = pool.quote(address(want), 1 ether, 3);
-        console.log("dumpedPriceQuote3: ", dumpedPriceQuote);
-        dumpedPriceQuote = pool.quote(address(want), 1 ether, 4);
-        console.log("dumpedPriceQuote4: ", dumpedPriceQuote);
-        dumpedPriceQuote = pool.quote(address(want), 1 ether, 5);
-        console.log("dumpedPriceQuote5: ", dumpedPriceQuote);
+        for (uint256 index = 1; index < iterations; index++) {
+            uint256 dumpedPriceQuote = pool.quote(address(want), 1 ether, index);
+            console.log("dumpedPriceQuote", index);
+            console.log(dumpedPriceQuote);
+        }
     }
 
     function liquidateTroves(address asset) internal {
