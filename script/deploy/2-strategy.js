@@ -54,8 +54,8 @@ async function main() {
   const veloUsdcErnPool = "0x55624DC97289A19045b4739627BEaEB1E70Ab64c";
   const pools = {
     stabilityPool,
-    veloUsdcErnPool
-  }
+    veloUsdcErnPool,
+  };
 
   const strategy = await upgrades.deployProxy(
     Strategy,
@@ -71,7 +71,7 @@ async function main() {
       balErnPoolId,
       chainlinkUsdcOracle,
       exchangeSettings,
-      pools
+      pools,
     ],
     {kind: "uups", timeout: 0},
   );
