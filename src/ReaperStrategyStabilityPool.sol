@@ -31,7 +31,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     AggregatorV3Interface public chainlinkUsdcOracle;
     IVelodromePair public veloUsdcErnPool;
 
-    uint256 public constant ETHOS_PRICE_PRECISION = 1 ether;
     uint256 public constant ETHOS_DECIMALS = 18;
     uint256 public minAmountOutBPS;
     uint256 public ernMinAmountOutBPS;
