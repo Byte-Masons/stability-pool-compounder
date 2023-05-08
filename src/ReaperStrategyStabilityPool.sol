@@ -81,6 +81,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         require(_priceFeed != address(0), "priceFeed is 0 address");
         require(_oath != address(0), "oath is 0 address");
         require(_usdc != address(0), "usdc is 0 address");
+        require(_balErnPoolID != bytes32(0), "balErnPoolID is 0 address");
         require(_chainlinkUsdcOracle != address(0), "chainlinkUsdcOracle is 0 address");
         require(_exchangeSettings.veloRouter != address(0), "veloRouter is 0 address");
         require(_exchangeSettings.balVault != address(0), "balVault is 0 address");
