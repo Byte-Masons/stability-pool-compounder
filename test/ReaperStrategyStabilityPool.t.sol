@@ -593,6 +593,10 @@ contract ReaperStrategyStabilityPoolTest is Test {
         vaultBalance = vault.balance();
         vaultWantBalance = want.balanceOf(address(vault));
         strategyBalance = wrappedProxy.balanceOf();
+        console.log("vaultBalance: ", vaultBalance);
+        console.log("depositAmount: ", depositAmount);
+        console.log("vaultWantBalance: ", vaultWantBalance);
+        console.log("strategyBalance: ", strategyBalance);
         assertGt(vaultBalance, depositAmount);
         assertGt(vaultWantBalance, depositAmount);
         assertEq(strategyBalance, 0);
@@ -862,10 +866,11 @@ contract ReaperStrategyStabilityPoolTest is Test {
         // uint256 usdcPrice = uint256(usdcAggregator.latestAnswer());
         // console.log("usdcPrice: ", usdcPrice);
 
-        uint256 expectedValueInCollateral = valueInCollateral * 10_500 / BPS_UNIT;
+        uint256 expectedValueInCollateral = valueInCollateral * 10_526 / BPS_UNIT;
         valueInCollateral = wrappedProxy.getWantValueInCollateral();
         console.log("expectedValueInCollateral: ", expectedValueInCollateral);
         console.log("valueInCollateral: ", valueInCollateral);
+        assertApproxEqRel(valueInCollateral, expectedValueInCollateral, 0.005e18);
     }
 
     function testVeloTWAPQuoteAmounts() public {

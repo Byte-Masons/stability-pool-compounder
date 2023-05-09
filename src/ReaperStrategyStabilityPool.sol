@@ -188,48 +188,49 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
             uint256 collateralBalance = IERC20MetadataUpgradeable(asset).balanceOf(address(this));
             console.log("asset: ", asset);
             console.log("collateralBalance: ", collateralBalance);
-            // if (collateralBalance != 0) {
-            //     uint256 assetValue = _getUSDEquivalentOfCollateral(asset, collateralBalance);
-            //     uint256 assetValueUsdc = assetValue * _getUsdcPrice() / (10 ** _getUsdcDecimals());
-            //     uint256 minAmountOut = (assetValueUsdc * minAmountOutBPS) / PERCENT_DIVISOR;
-            //     uint256 scaledMinAmountOut = _getScaledToCollAmount(minAmountOut, usdc.decimals());
-            //     _swapUniV3(
-            //         asset,
-            //         address(usdc),
-            //         collateralBalance,
-            //         scaledMinAmountOut,
-            //         exchangeSettings.uniV3Router,
-            //         exchangeSettings.uniV3Quoter
-            //     );
-            // }
+            if (collateralBalance != 0) {
+                uint256 assetValue = _getUSDEquivalentOfCollateral(asset, collateralBalance);
+                uint256 assetValueUsdc = assetValue * _getUsdcPrice() / (10 ** _getUsdcDecimals());
+                uint256 minAmountOut = (assetValueUsdc * minAmountOutBPS) / PERCENT_DIVISOR;
+                uint256 scaledMinAmountOut = _getScaledToCollAmount(minAmountOut, usdc.decimals());
+                _swapUniV3(
+                    asset,
+                    address(usdc),
+                    collateralBalance,
+                    scaledMinAmountOut,
+                    exchangeSettings.uniV3Router,
+                    exchangeSettings.uniV3Quoter
+                );
+            }
         }
 
         uint256 oathBalance = oath.balanceOf(address(this));
+        console.log("oathBalance: ", oathBalance);
         if (oathBalance != 0) {
             _swapVelo(address(oath), address(usdc), oathBalance, 0, exchangeSettings.veloRouter);
         }
 
         uint256 usdcBalance = usdc.balanceOf(address(this));
-        // if (usdcBalance != 0) {
-        //     uint256 currentErnPriceInUsdc = veloUsdcErnPool.quote(address(want), 1 ether, veloUsdcErnQuoteGranularity); // Get the amount of USDC for 1 ERN
-        //     uint256 scaledUsdcBalance = _getScaledFromCollAmount(usdcBalance, usdc.decimals());
-        //     uint256 minAmountOut = (scaledUsdcBalance * ernMinAmountOutBPS) / PERCENT_DIVISOR;
-        //     uint256 priceAdjustedMinAmountOut = minAmountOut * (10 ** usdc.decimals()) / currentErnPriceInUsdc;
-        //     if (usdcToErnExchange == Exchange.Beethoven) {
-        //         _swapBal(address(usdc), want, usdcBalance, priceAdjustedMinAmountOut);
-        //     } else if (usdcToErnExchange == Exchange.Velodrome) {
-        //         _swapVelo(address(usdc), want, usdcBalance, priceAdjustedMinAmountOut, exchangeSettings.veloRouter);
-        //     } else if (usdcToErnExchange == Exchange.UniV3) {
-        //         _swapUniV3(
-        //             address(usdc),
-        //             want,
-        //             usdcBalance,
-        //             priceAdjustedMinAmountOut,
-        //             exchangeSettings.uniV3Router,
-        //             exchangeSettings.uniV3Quoter
-        //         );
-        //     }
-        // }
+        if (usdcBalance != 0) {
+            uint256 currentErnPriceInUsdc = veloUsdcErnPool.quote(address(want), 1 ether, veloUsdcErnQuoteGranularity); // Get the amount of USDC for 1 ERN
+            uint256 scaledUsdcBalance = _getScaledFromCollAmount(usdcBalance, usdc.decimals());
+            uint256 minAmountOut = (scaledUsdcBalance * ernMinAmountOutBPS) / PERCENT_DIVISOR;
+            uint256 priceAdjustedMinAmountOut = minAmountOut * (10 ** usdc.decimals()) / currentErnPriceInUsdc;
+            if (usdcToErnExchange == Exchange.Beethoven) {
+                _swapBal(address(usdc), want, usdcBalance, priceAdjustedMinAmountOut);
+            } else if (usdcToErnExchange == Exchange.Velodrome) {
+                _swapVelo(address(usdc), want, usdcBalance, priceAdjustedMinAmountOut, exchangeSettings.veloRouter);
+            } else if (usdcToErnExchange == Exchange.UniV3) {
+                _swapUniV3(
+                    address(usdc),
+                    want,
+                    usdcBalance,
+                    priceAdjustedMinAmountOut,
+                    exchangeSettings.uniV3Router,
+                    exchangeSettings.uniV3Quoter
+                );
+            }
+        }
     }
 
     /**
@@ -272,6 +273,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
      * @dev The want balance directly held in the strategy itself.
      */
     function balanceOfWant() public view returns (uint256) {
+        console.log("balanceOfWant(): ", IERC20MetadataUpgradeable(want).balanceOf(address(this)));
         return IERC20MetadataUpgradeable(want).balanceOf(address(this));
     }
 
@@ -298,6 +300,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         uint256 usdcValueOfCollateral = _getUsdcEquivalentOfUSD(usdValueOfCollateral);
         uint256 usdcBalance = usdc.balanceOf(address(this));
         uint256 totalUsdcValue = usdcBalance + usdcValueOfCollateral;
+        console.log("totalUsdcValue: ", totalUsdcValue);
         wantValueInCollateral = veloUsdcErnPool.quote(address(usdc), totalUsdcValue, veloUsdcErnQuoteGranularity);
     }
 
