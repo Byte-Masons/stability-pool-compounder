@@ -212,20 +212,18 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
 
         uint256 usdcBalance = usdc.balanceOf(address(this));
         if (usdcBalance != 0) {
-            uint256 currentErnPriceInUsdc = veloUsdcErnPool.quote(address(want), 1 ether, veloUsdcErnQuoteGranularity); // Get the amount of USDC for 1 ERN
-            uint256 scaledUsdcBalance = _getScaledFromCollAmount(usdcBalance, usdc.decimals());
-            uint256 minAmountOut = (scaledUsdcBalance * ernMinAmountOutBPS) / PERCENT_DIVISOR;
-            uint256 priceAdjustedMinAmountOut = minAmountOut * (10 ** usdc.decimals()) / currentErnPriceInUsdc;
+            uint256 expectedErnAmount = veloUsdcErnPool.quote(address(usdc), usdcBalance, veloUsdcErnQuoteGranularity);
+            uint256 minAmountOut = (expectedErnAmount * ernMinAmountOutBPS) / PERCENT_DIVISOR;
             if (usdcToErnExchange == Exchange.Beethoven) {
-                _swapBal(address(usdc), want, usdcBalance, priceAdjustedMinAmountOut);
+                _swapBal(address(usdc), want, usdcBalance, minAmountOut);
             } else if (usdcToErnExchange == Exchange.Velodrome) {
-                _swapVelo(address(usdc), want, usdcBalance, priceAdjustedMinAmountOut, exchangeSettings.veloRouter);
+                _swapVelo(address(usdc), want, usdcBalance, minAmountOut, exchangeSettings.veloRouter);
             } else if (usdcToErnExchange == Exchange.UniV3) {
                 _swapUniV3(
                     address(usdc),
                     want,
                     usdcBalance,
-                    priceAdjustedMinAmountOut,
+                    minAmountOut,
                     exchangeSettings.uniV3Router,
                     exchangeSettings.uniV3Quoter
                 );
