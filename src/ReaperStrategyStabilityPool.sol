@@ -57,6 +57,12 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         address veloUsdcErnPool;
     }
 
+    struct Tokens {
+        address want;
+        address oath;
+        address usdc;
+    }
+
     /**
      * @dev Initializes the strategy. Sets parameters, saves routes, and gives allowances.
      * @notice see documentation for each variable above its respective declaration.
@@ -66,22 +72,21 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         address[] memory _strategists,
         address[] memory _multisigRoles,
         address[] memory _keepers,
-        address _want,
         address _priceFeed,
-        address _oath,
-        address _usdc,
         bytes32 _balErnPoolID,
         address _chainlinkUsdcOracle,
         ExchangeSettings calldata _exchangeSettings,
-        Pools calldata _pools
+        Pools calldata _pools,
+        address[] calldata _usdcErnPath,
+        Tokens calldata _tokens
     ) public initializer {
         require(_vault != address(0), "vault is 0 address");
         require(_strategists.length != 0, "no strategists");
         require(_multisigRoles.length == 3, "invalid amount of multisig roles");
-        require(_want != address(0), "want is 0 address");
+        require(_tokens.want != address(0), "want is 0 address");
         require(_priceFeed != address(0), "priceFeed is 0 address");
-        require(_oath != address(0), "oath is 0 address");
-        require(_usdc != address(0), "usdc is 0 address");
+        require(_tokens.oath != address(0), "oath is 0 address");
+        require(_tokens.usdc != address(0), "usdc is 0 address");
         require(_balErnPoolID != bytes32(0), "balErnPoolID is 0 address");
         require(_chainlinkUsdcOracle != address(0), "chainlinkUsdcOracle is 0 address");
         require(_exchangeSettings.veloRouter != address(0), "veloRouter is 0 address");
@@ -90,24 +95,23 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         require(_exchangeSettings.uniV3Quoter != address(0), "uniV3Quoter is 0 address");
         require(_pools.stabilityPool != address(0), "stabilityPool is 0 address");
         require(_pools.veloUsdcErnPool != address(0), "veloUsdcErnPool is 0 address");
+        require(_usdcErnPath.length >= 2, "usdcErnPath must contain at least 2 tokens");
 
-        __ReaperBaseStrategy_init(_vault, _want, _strategists, _multisigRoles, _keepers);
+        __ReaperBaseStrategy_init(_vault, _tokens.want, _strategists, _multisigRoles, _keepers);
         stabilityPool = IStabilityPool(_pools.stabilityPool);
         priceFeed = IPriceFeed(_priceFeed);
-        oath = IERC20MetadataUpgradeable(_oath);
-        usdc = IERC20MetadataUpgradeable(_usdc);
+        oath = IERC20MetadataUpgradeable(_tokens.oath);
+        usdc = IERC20MetadataUpgradeable(_tokens.usdc);
         exchangeSettings = _exchangeSettings;
 
         minAmountOutBPS = 9800;
         ernMinAmountOutBPS = 9800;
         usdcToErnExchange = Exchange.Velodrome;
 
-        address[] memory usdcErnPath = new address[](2);
-        usdcErnPath[0] = _usdc;
-        usdcErnPath[1] = _want;
-        veloSwapPaths[_usdc][_want] = usdcErnPath;
-        uniV3SwapPaths[_usdc][_want] = usdcErnPath;
-        balSwapPoolIDs[_usdc][_want] = _balErnPoolID;
+        updateVeloSwapPath(_tokens.usdc, _tokens.want, _usdcErnPath);
+        updateUniV3SwapPath(_tokens.usdc, _tokens.want, _usdcErnPath);
+        updateBalSwapPoolID(_tokens.usdc, _tokens.want, _balErnPoolID);
+
         chainlinkUsdcOracle = AggregatorV3Interface(_chainlinkUsdcOracle);
         veloUsdcErnPool = IVelodromePair(_pools.veloUsdcErnPool);
         veloUsdcErnQuoteGranularity = 2;
@@ -435,7 +439,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     /**
      * @dev Updates the Velodrome swap path to go from {_tokenIn} to {_tokenOut}
      */
-    function updateVeloSwapPath(address _tokenIn, address _tokenOut, address[] calldata _path) external override {
+    function updateVeloSwapPath(address _tokenIn, address _tokenOut, address[] calldata _path) public override {
         _atLeastRole(STRATEGIST);
         _updateVeloSwapPath(_tokenIn, _tokenOut, _path);
     }
@@ -443,7 +447,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     /**
      * @dev Updates the UniV3 swap path to go from {_tokenIn} to {_tokenOut}
      */
-    function updateUniV3SwapPath(address _tokenIn, address _tokenOut, address[] calldata _path) external override {
+    function updateUniV3SwapPath(address _tokenIn, address _tokenOut, address[] calldata _path) public override {
         _atLeastRole(STRATEGIST);
         _updateUniV3SwapPath(_tokenIn, _tokenOut, _path);
     }
@@ -451,7 +455,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     /**
      * @dev Updates the Balancer/BeetX pool used to go from {_tokenIn} to {_tokenOut}
      */
-    function updateBalSwapPoolID(address _tokenIn, address _tokenOut, bytes32 _poolID) external override {
+    function updateBalSwapPoolID(address _tokenIn, address _tokenOut, bytes32 _poolID) public override {
         _atLeastRole(STRATEGIST);
         _updateBalSwapPoolID(_tokenIn, _tokenOut, _poolID);
     }

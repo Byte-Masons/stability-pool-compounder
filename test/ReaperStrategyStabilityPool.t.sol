@@ -122,19 +122,27 @@ contract ReaperStrategyStabilityPoolTest is Test {
         pools.stabilityPool = stabilityPoolAddress;
         pools.veloUsdcErnPool = veloUsdcErnPool;
 
+        address[] memory usdcErnPath = new address[](2);
+        usdcErnPath[0] = usdcAddress;
+        usdcErnPath[1] = wantAddress;
+
+        ReaperStrategyStabilityPool.Tokens memory tokens;
+        tokens.want = wantAddress;
+        tokens.oath = oathAddress;
+        tokens.usdc = usdcAddress;
+
         wrappedProxy.initialize(
             address(vault),
             strategists,
             multisigRoles,
             keepers,
-            wantAddress,
             priceFeedAddress,
-            oathAddress,
-            usdcAddress,
             balErnPoolId,
             chainlinkUsdcOracle,
             exchangeSettings,
-            pools
+            pools,
+            usdcErnPath,
+            tokens
         );
 
         uint256 feeBPS = 500;
