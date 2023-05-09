@@ -15,7 +15,7 @@ import {BalMixin} from "mixins/BalMixin.sol";
 import {IERC20MetadataUpgradeable} from "oz-upgradeable/token/ERC20/extensions/IERC20MetadataUpgradeable.sol";
 import {SafeERC20Upgradeable} from "oz-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 import {MathUpgradeable} from "oz-upgradeable/utils/math/MathUpgradeable.sol";
-
+import "forge-std/console.sol";
 /**
  * @dev Strategy to _compound rewards and liquidation collateral gains in the Ethos stability pool
  */
@@ -186,20 +186,22 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
             address asset = assets[i];
 
             uint256 collateralBalance = IERC20MetadataUpgradeable(asset).balanceOf(address(this));
-            if (collateralBalance != 0) {
-                uint256 assetValue = _getUSDEquivalentOfCollateral(asset, collateralBalance);
-                uint256 assetValueUsdc = assetValue * _getUsdcPrice() / (10 ** _getUsdcDecimals());
-                uint256 minAmountOut = (assetValueUsdc * minAmountOutBPS) / PERCENT_DIVISOR;
-                uint256 scaledMinAmountOut = _getScaledToCollAmount(minAmountOut, usdc.decimals());
-                _swapUniV3(
-                    asset,
-                    address(usdc),
-                    collateralBalance,
-                    scaledMinAmountOut,
-                    exchangeSettings.uniV3Router,
-                    exchangeSettings.uniV3Quoter
-                );
-            }
+            console.log("asset: ", asset);
+            console.log("collateralBalance: ", collateralBalance);
+            // if (collateralBalance != 0) {
+            //     uint256 assetValue = _getUSDEquivalentOfCollateral(asset, collateralBalance);
+            //     uint256 assetValueUsdc = assetValue * _getUsdcPrice() / (10 ** _getUsdcDecimals());
+            //     uint256 minAmountOut = (assetValueUsdc * minAmountOutBPS) / PERCENT_DIVISOR;
+            //     uint256 scaledMinAmountOut = _getScaledToCollAmount(minAmountOut, usdc.decimals());
+            //     _swapUniV3(
+            //         asset,
+            //         address(usdc),
+            //         collateralBalance,
+            //         scaledMinAmountOut,
+            //         exchangeSettings.uniV3Router,
+            //         exchangeSettings.uniV3Quoter
+            //     );
+            // }
         }
 
         uint256 oathBalance = oath.balanceOf(address(this));
@@ -208,26 +210,26 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         }
 
         uint256 usdcBalance = usdc.balanceOf(address(this));
-        if (usdcBalance != 0) {
-            uint256 currentErnPriceInUsdc = veloUsdcErnPool.quote(address(want), 1 ether, veloUsdcErnQuoteGranularity); // Get the amount of USDC for 1 ERN
-            uint256 scaledUsdcBalance = _getScaledFromCollAmount(usdcBalance, usdc.decimals());
-            uint256 minAmountOut = (scaledUsdcBalance * ernMinAmountOutBPS) / PERCENT_DIVISOR;
-            uint256 priceAdjustedMinAmountOut = minAmountOut * (10 ** usdc.decimals()) / currentErnPriceInUsdc;
-            if (usdcToErnExchange == Exchange.Beethoven) {
-                _swapBal(address(usdc), want, usdcBalance, priceAdjustedMinAmountOut);
-            } else if (usdcToErnExchange == Exchange.Velodrome) {
-                _swapVelo(address(usdc), want, usdcBalance, priceAdjustedMinAmountOut, exchangeSettings.veloRouter);
-            } else if (usdcToErnExchange == Exchange.UniV3) {
-                _swapUniV3(
-                    address(usdc),
-                    want,
-                    usdcBalance,
-                    priceAdjustedMinAmountOut,
-                    exchangeSettings.uniV3Router,
-                    exchangeSettings.uniV3Quoter
-                );
-            }
-        }
+        // if (usdcBalance != 0) {
+        //     uint256 currentErnPriceInUsdc = veloUsdcErnPool.quote(address(want), 1 ether, veloUsdcErnQuoteGranularity); // Get the amount of USDC for 1 ERN
+        //     uint256 scaledUsdcBalance = _getScaledFromCollAmount(usdcBalance, usdc.decimals());
+        //     uint256 minAmountOut = (scaledUsdcBalance * ernMinAmountOutBPS) / PERCENT_DIVISOR;
+        //     uint256 priceAdjustedMinAmountOut = minAmountOut * (10 ** usdc.decimals()) / currentErnPriceInUsdc;
+        //     if (usdcToErnExchange == Exchange.Beethoven) {
+        //         _swapBal(address(usdc), want, usdcBalance, priceAdjustedMinAmountOut);
+        //     } else if (usdcToErnExchange == Exchange.Velodrome) {
+        //         _swapVelo(address(usdc), want, usdcBalance, priceAdjustedMinAmountOut, exchangeSettings.veloRouter);
+        //     } else if (usdcToErnExchange == Exchange.UniV3) {
+        //         _swapUniV3(
+        //             address(usdc),
+        //             want,
+        //             usdcBalance,
+        //             priceAdjustedMinAmountOut,
+        //             exchangeSettings.uniV3Router,
+        //             exchangeSettings.uniV3Quoter
+        //         );
+        //     }
+        // }
     }
 
     /**
@@ -291,20 +293,28 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
      * and the Velodrome USDC-ERN TWAP.
      */
     function getWantValueInCollateral() public view returns (uint256 wantValueInCollateral) {
-        (address[] memory assets, uint256[] memory amounts) = stabilityPool.getDepositorCollateralGain(address(this));
-
-        uint256 usdValueOfCollateral = 0;
-        for (uint256 i = 0; i < assets.length; i++) {
-            address asset = assets[i];
-            uint256 amount = amounts[i] + IERC20MetadataUpgradeable(asset).balanceOf(address(this));
-            usdValueOfCollateral += _getUSDEquivalentOfCollateral(asset, amount);
-        }
+        console.log("getWantValueInCollateral()");
+        uint256 usdValueOfCollateral = getUsdValueInCollateral();
         uint256 usdcValueOfCollateral = _getUsdcEquivalentOfUSD(usdValueOfCollateral);
         uint256 usdcBalance = usdc.balanceOf(address(this));
         uint256 totalUsdcValue = usdcBalance + usdcValueOfCollateral;
-        uint256 currentErnPriceInUsdc = veloUsdcErnPool.quote(address(want), 1 ether, veloUsdcErnQuoteGranularity); // Get the amount of USDC for 1 ERN
-        uint256 priceAdjustedValue = totalUsdcValue * (10 ** usdc.decimals()) / currentErnPriceInUsdc;
-        wantValueInCollateral = _getScaledFromCollAmount(priceAdjustedValue, usdc.decimals());
+        wantValueInCollateral = veloUsdcErnPool.quote(address(usdc), totalUsdcValue, veloUsdcErnQuoteGranularity);
+    }
+
+    function getUsdValueInCollateral() public view returns (uint256 usdValueOfCollateral) {
+        console.log("getUsdValueInCollateral()");
+        (address[] memory assets, uint256[] memory amounts) = stabilityPool.getDepositorCollateralGain(address(this));
+        console.log("assets.length: ", assets.length);
+        for (uint256 i = 0; i < assets.length; i++) {
+            address asset = assets[i];
+            uint256 amount = amounts[i] + IERC20MetadataUpgradeable(asset).balanceOf(address(this));
+            uint256 currentAssetValue = _getUSDEquivalentOfCollateral(asset, amount);
+            usdValueOfCollateral += _getUSDEquivalentOfCollateral(asset, amount);
+            console.log("asset: ", asset);
+            console.log("amount: ", amount);
+            console.log("currentAssetValue: ", currentAssetValue);
+            console.log("usdValueOfCollateral: ", usdValueOfCollateral);
+        }
     }
 
     /**
@@ -312,20 +322,14 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
      * The precision of {_amount} is whatever {_collateral}'s native decimals are (ex. 8 for wBTC)
      */
     function _getUSDEquivalentOfCollateral(address _collateral, uint256 _amount) internal view returns (uint256) {
+        console.log("_getUSDEquivalentOfCollateral: ", _collateral);
+        console.log("_getUSDEquivalentOfCollateral: ",  _amount);
         uint256 scaledAmount = _getScaledFromCollAmount(_amount, IERC20MetadataUpgradeable(_collateral).decimals());
         uint256 price = _getCollateralPrice(_collateral);
         uint256 USDAssetValue = (scaledAmount * price) / (10 ** _getCollateralDecimals(_collateral));
-        return USDAssetValue;
-    }
-
-    /**
-     * @dev Returns USD equivalent of {_amount} of USDC with 18 digits of decimal precision.
-     * The precision of {_amount} is 6 decimals
-     */
-    function _getUSDEquivalentOfUsdc(uint256 _amount) internal view returns (uint256) {
-        uint256 scaledAmount = _getScaledFromCollAmount(_amount, usdc.decimals());
-        uint256 price = _getUsdcPrice();
-        uint256 USDAssetValue = (scaledAmount * price) / (10 ** _getUsdcDecimals());
+        console.log("scaledAmount: ",  scaledAmount);
+        console.log("price: ",  price);
+        console.log("USDAssetValue: ",  USDAssetValue);
         return USDAssetValue;
     }
 
@@ -334,9 +338,13 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
      * The precision of {_amount} is 18 decimals
      */
     function _getUsdcEquivalentOfUSD(uint256 _amount) internal view returns (uint256) {
+        console.log("_getUsdcEquivalentOfUSD: ", _amount);
         uint256 scaledAmount = _getScaledToCollAmount(_amount, usdc.decimals());
         uint256 price = _getUsdcPrice();
-        uint256 usdcAmount = (scaledAmount * price) / (10 ** _getUsdcDecimals());
+        uint256 usdcAmount = (scaledAmount * (10 ** _getUsdcDecimals())) / price;
+        console.log("scaledAmount: ", scaledAmount);
+        console.log("price: ", price);
+        console.log("usdcAmount: ", usdcAmount);
         return usdcAmount;
     }
 
@@ -359,8 +367,12 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
      * @dev Returns the price of USDC in USD in whatever decimals the aggregator uses (usually 8)
      */
     function _getUsdcPrice() internal view returns (uint256 price) {
+        console.log("_getUsdcPrice()");
         AggregatorV3Interface aggregator = AggregatorV3Interface(chainlinkUsdcOracle);
         price = uint256(aggregator.latestAnswer());
+        // console.log("price: ", price);
+        // price = 105000000;
+        // console.log("price: ", price);
     }
 
     /**

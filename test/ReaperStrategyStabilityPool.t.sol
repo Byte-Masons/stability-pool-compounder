@@ -11,6 +11,8 @@ import "src/mocks/MockAggregator.sol";
 import "src/interfaces/ITroveManager.sol";
 import "src/interfaces/IStabilityPool.sol";
 import "src/interfaces/IVelodromePair.sol";
+import "src/interfaces/IAggregatorAdmin.sol";
+import "src/interfaces/AggregatorV3Interface.sol";
 import {IERC20Mintable} from "src/interfaces/IERC20Mintable.sol";
 import {ERC1967Proxy} from "oz/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC20Upgradeable} from "oz-upgradeable/token/ERC20/IERC20Upgradeable.sol";
@@ -55,6 +57,13 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
     bytes32 public balErnPoolId = 0x1d95129c18a8c91c464111fdf7d0eb241b37a9850002000000000000000000c1;
 
+    uint256 BPS_UNIT = 10_000;
+
+    AggregatorV3Interface wbtcAggregator;
+    AggregatorV3Interface wethAggregator;
+    AggregatorV3Interface opAggregator;
+    AggregatorV3Interface usdcAggregator;
+
     address[] keepers = [
         0xe0268Aa6d55FfE1AA7A77587e56784e5b29004A2,
         0x34Df14D42988e4Dc622e37dc318e70429336B6c5,
@@ -93,7 +102,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
     function setUp() public {
         // Forking
-        optimismFork = vm.createSelectFork("https://opt-mainnet.g.alchemy.com/v2/demo", 96499629);
+        optimismFork = vm.createSelectFork("https://opt-mainnet.g.alchemy.com/v2/demo", 97072797);
         assertEq(vm.activeFork(), optimismFork);
 
         // // Deploying stuff
@@ -215,6 +224,11 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
         ReaperStrategyStabilityPool.Exchange currentExchange = ReaperStrategyStabilityPool.Exchange.Velodrome;
         wrappedProxy.setUsdcToErnExchange(currentExchange);
+
+        wbtcAggregator = AggregatorV3Interface(IPriceFeed(priceFeedAddress).priceAggregator(wbtcAddress));
+        wethAggregator = AggregatorV3Interface(IPriceFeed(priceFeedAddress).priceAggregator(wethAddress));
+        opAggregator = AggregatorV3Interface(IPriceFeed(priceFeedAddress).priceAggregator(opAddress));
+        usdcAggregator = AggregatorV3Interface(chainlinkUsdcOracle);
     }
 
     ///------ DEPLOYMENT ------\\\\
@@ -673,6 +687,214 @@ contract ReaperStrategyStabilityPoolTest is Test {
             console.log(dumpedPriceQuote);
         }
     }
+
+    function testUsdcBalanceCalculations() public {
+        address usdcOracleOwner = 0xAbC73A7dbd0A1D6576d55F19809a6F017913C078;
+        vm.startPrank(usdcOracleOwner);
+        IAggregatorAdmin aggregator = IAggregatorAdmin(chainlinkUsdcOracle);
+
+        int256 newUsdcPrice = 950_000_000;
+        MockAggregator mockChainlink = new MockAggregator();
+        mockChainlink.setPrevRoundId(2);
+        mockChainlink.setLatestRoundId(3);
+        mockChainlink.setPrice(newUsdcPrice);
+        mockChainlink.setPrevPrice(newUsdcPrice);
+        mockChainlink.setUpdateTime(block.timestamp);
+
+        // aggregator.proposeAggregator(address(mockChainlink));
+        // aggregator.confirmAggregator(address(mockChainlink));
+
+        uint256 valueInCollateralBefore = wrappedProxy.getWantValueInCollateral();
+        uint256 poolBalanceBefore = wrappedProxy.balanceOfPool();
+
+        uint256 usdcAmount = 100_000 * (10 ** 6);
+        deal({token: usdcAddress, to: address(wrappedProxy), give: usdcAmount});
+
+        uint256 valueInCollateralAfter = wrappedProxy.getWantValueInCollateral();
+        uint256 poolBalanceAfter = wrappedProxy.balanceOfPool();
+        console.log("valueInCollateralBefore: ", valueInCollateralBefore);
+        console.log("valueInCollateralAfter: ", valueInCollateralAfter);
+        console.log("poolBalanceBefore: ", poolBalanceBefore);
+        console.log("poolBalanceAfter: ", poolBalanceAfter);
+
+        IVelodromePair pool = IVelodromePair(veloUsdcErnPool);
+        uint256 granularity = wrappedProxy.veloUsdcErnQuoteGranularity();
+        uint256 priceQuote = pool.quote(usdcAddress, usdcAmount, granularity);
+        console.log("priceQuote: ", priceQuote);
+        // Values should be the same because the usdc balance will be valued
+        // using the Velo TWAP
+        assertEq(valueInCollateralAfter, priceQuote);
+
+        uint256 collateralValueAdjustmentBPS = wrappedProxy.collateralValueAdjustmentBPS();
+        uint256 expectedPoolBalance = valueInCollateralAfter * collateralValueAdjustmentBPS / BPS_UNIT;
+        console.log("expectedPoolBalance: ", expectedPoolBalance);
+        assertEq(poolBalanceAfter, expectedPoolBalance);
+    }
+
+    function testCollateralBalanceCalculations() public {
+        // address usdcOracleOwner = 0xAbC73A7dbd0A1D6576d55F19809a6F017913C078;
+        // vm.startPrank(usdcOracleOwner);
+        // IAggregatorAdmin aggregator = IAggregatorAdmin(chainlinkUsdcOracle);
+
+        // int256 newUsdcPrice = 950_000_000;
+        // MockAggregator mockChainlink = new MockAggregator();
+        // mockChainlink.setPrevRoundId(2);
+        // mockChainlink.setLatestRoundId(3);
+        // mockChainlink.setPrice(newUsdcPrice);
+        // mockChainlink.setPrevPrice(newUsdcPrice);
+        // mockChainlink.setUpdateTime(block.timestamp);
+
+        // aggregator.proposeAggregator(address(mockChainlink));
+        // aggregator.confirmAggregator(address(mockChainlink));
+
+        // Funds need to be deposited in the stability pool for collateral to count in the balance
+        uint256 wantBalance = want.balanceOf(wantHolderAddr);
+        vm.prank(wantHolderAddr);
+        vault.deposit(wantBalance);
+        wrappedProxy.harvest();
+
+        // uint256 valueInCollateralBefore = wrappedProxy.getWantValueInCollateral();
+        uint256 poolBalanceBefore = wrappedProxy.balanceOfPool();
+
+        uint256 wbtcAmount = 1 * (10 ** 8);
+        uint256 wethAmount = 10 ether;
+        uint256 opAmount = 1000 ether;
+        deal({token: wbtcAddress, to: address(wrappedProxy), give: wbtcAmount});
+        deal({token: wethAddress, to: address(wrappedProxy), give: wethAmount});
+        deal({token: opAddress, to: address(wrappedProxy), give: opAmount});
+
+        // uint256 valueInCollateralAfter = wrappedProxy.getWantValueInCollateral();
+        uint256 poolBalanceAfter = wrappedProxy.balanceOfPool();
+        // console.log("valueInCollateralBefore: ", valueInCollateralBefore);
+        // console.log("valueInCollateralAfter: ", valueInCollateralAfter);
+        // console.log("poolBalanceBefore: ", poolBalanceBefore);
+        // console.log("poolBalanceAfter: ", poolBalanceAfter);
+
+        // console.log("poolBalanceIncrease: ", poolBalanceAfter - poolBalanceBefore);
+
+        
+        // console.log("wbtcAggregator: ", wbtcAggregator);
+        // console.log("wethAggregator: ", wethAggregator);
+        // console.log("opAggregator: ", opAggregator);
+        int256 wbtcPrice = wbtcAggregator.latestAnswer();
+        int256 wethPrice = wethAggregator.latestAnswer();
+        int256 opPrice = opAggregator.latestAnswer();
+        console.log("wbtcPrice: ");
+        console.logInt(wbtcPrice);
+        console.log("wethPrice: ");
+        console.logInt(wethPrice);
+        console.log("opPrice: ");
+        console.logInt(opPrice);
+
+        uint256 wbtcUsdValue = wbtcAmount * uint256(wbtcPrice) * (10 ** 2);
+        uint256 wethUsdValue = wethAmount * uint256(wethPrice) / (10 ** 8);
+        uint256 opUsdValue = opAmount * uint256(opPrice) / (10 ** 8);
+        uint256 expectedUsdValueInCollateral = wbtcUsdValue + wethUsdValue + opUsdValue;
+        console.log("wbtcUsdValue: ", wbtcUsdValue);
+        console.log("wethUsdValue: ", wethUsdValue);
+        console.log("opUsdValue: ", opUsdValue);
+        
+        uint256 usdValueInCollateral = wrappedProxy.getUsdValueInCollateral();
+        console.log("expectedUsdValueInCollateral: ", expectedUsdValueInCollateral);
+        console.log("usdValueInCollateral: ", usdValueInCollateral);
+        assertEq(usdValueInCollateral, expectedUsdValueInCollateral);
+
+        uint256 usdcPrice = uint256(usdcAggregator.latestAnswer());
+        console.log("usdcPrice: ", usdcPrice);
+
+        // uint256 scaledUsdValueInCollateral = ;
+        uint256 usdcAmount = ((usdValueInCollateral / (10 ** 12)) * (10 ** 8)) / usdcPrice;
+        console.log("usdcAmount: ", usdcAmount);
+
+        // IVelodromePair pool = IVelodromePair(veloUsdcErnPool);
+        // uint256 granularity = wrappedProxy.veloUsdcErnQuoteGranularity();
+        uint256 ernAmount = IVelodromePair(veloUsdcErnPool).quote(usdcAddress, usdcAmount, wrappedProxy.veloUsdcErnQuoteGranularity());
+        uint256 wantValueInCollateral = wrappedProxy.getWantValueInCollateral();
+
+        console.log("ernAmount: ", ernAmount);
+        console.log("wantValueInCollateral: ", wantValueInCollateral);
+        assertEq(ernAmount, wantValueInCollateral);
+
+        uint256 collateralValueAdjustmentBPS = wrappedProxy.collateralValueAdjustmentBPS();
+        uint256 expectedPoolIncrease = ernAmount * collateralValueAdjustmentBPS / BPS_UNIT;
+        //console.log("poolBalanceIncrease: ", poolBalanceAfter - poolBalanceBefore);
+        // console.log("expectedPoolIncrease: ", expectedPoolIncrease);
+        // assertEq(poolBalanceAfter - poolBalanceBefore, expectedPoolIncrease);
+    }
+
+    function testUsdcPriceChange() public {
+        address usdcOracleOwner = 0xAbC73A7dbd0A1D6576d55F19809a6F017913C078;
+        vm.startPrank(usdcOracleOwner);
+        IAggregatorAdmin aggregator = IAggregatorAdmin(chainlinkUsdcOracle);
+        uint256 usdcPrice = 10 ** 8;
+        
+        MockAggregator mockChainlink = new MockAggregator();
+        mockChainlink.setPrevRoundId(2);
+        mockChainlink.setLatestRoundId(3);
+        mockChainlink.setPrice(int256(usdcPrice));
+        mockChainlink.setPrevPrice(int256(usdcPrice));
+        mockChainlink.setUpdateTime(block.timestamp);
+
+        aggregator.proposeAggregator(address(mockChainlink));
+        aggregator.confirmAggregator(address(mockChainlink));
+        // Funds need to be deposited in the stability pool for collateral to count in the balance
+        uint256 wantBalance = want.balanceOf(wantHolderAddr);
+        vm.stopPrank();
+        vm.prank(wantHolderAddr);
+        vault.deposit(wantBalance);
+        wrappedProxy.harvest();
+
+        uint256 wbtcAmount = 1 * (10 ** 8);
+        uint256 wethAmount = 10 ether;
+        uint256 opAmount = 1000 ether;
+        deal({token: wbtcAddress, to: address(wrappedProxy), give: wbtcAmount});
+        deal({token: wethAddress, to: address(wrappedProxy), give: wethAmount});
+        deal({token: opAddress, to: address(wrappedProxy), give: opAmount});
+
+        uint256 valueInCollateral = wrappedProxy.getWantValueInCollateral();
+        console.log("valueInCollateral: ", valueInCollateral);
+
+        uint256 newUsdcPrice = usdcPrice * 9500 / BPS_UNIT;
+        vm.startPrank(usdcOracleOwner);
+        mockChainlink.setPrice(int256(newUsdcPrice));
+        mockChainlink.setPrevPrice(int256(newUsdcPrice));
+
+        // uint256 usdcPrice = uint256(usdcAggregator.latestAnswer());
+        // console.log("usdcPrice: ", usdcPrice);
+
+        uint256 expectedValueInCollateral = valueInCollateral * 10_500 / BPS_UNIT;
+        valueInCollateral = wrappedProxy.getWantValueInCollateral();
+        console.log("expectedValueInCollateral: ", expectedValueInCollateral);
+        console.log("valueInCollateral: ", valueInCollateral);
+    }
+
+    function testVeloTWAPQuoteAmounts() public {
+        uint256 usdcUnit = 10 ** 6;
+
+        IVelodromePair pool = IVelodromePair(veloUsdcErnPool);
+        uint256 granularity = wrappedProxy.veloUsdcErnQuoteGranularity();
+
+        uint256 priceQuote1 = pool.quote(usdcAddress, usdcUnit, granularity);
+        uint256 priceQuote2 = pool.quote(usdcAddress, usdcUnit * 10, granularity);
+        uint256 priceQuote3 = pool.quote(usdcAddress, usdcUnit * 100, granularity);
+        uint256 priceQuote4 = pool.quote(usdcAddress, usdcUnit * 1000, granularity);
+        uint256 priceQuote5 = pool.quote(usdcAddress, usdcUnit * 10_000, granularity);
+        uint256 priceQuote6 = pool.quote(usdcAddress, usdcUnit * 100_000, granularity);
+        uint256 priceQuote7 = pool.quote(usdcAddress, usdcUnit * 1_000_000, granularity);
+        uint256 priceQuote8 = pool.quote(usdcAddress, usdcUnit * 10_000_000, granularity);
+        uint256 priceQuote9 = pool.quote(usdcAddress, usdcUnit * 100_000_000, granularity);
+        uint256 priceQuote10 = pool.quote(usdcAddress, usdcUnit * 1_000_000_000, granularity);
+        console.log("priceQuote1: ", priceQuote1);
+        console.log("priceQuote2: ", priceQuote2 / 10);
+        console.log("priceQuote3: ", priceQuote3 / 100);
+        console.log("priceQuote4: ", priceQuote4 / 1000);
+        console.log("priceQuote5: ", priceQuote5 / 10_000);
+        console.log("priceQuote6: ", priceQuote6 / 100_000);
+        console.log("priceQuote7: ", priceQuote7 / 1_000_000);
+        console.log("priceQuote8: ", priceQuote8 / 10_000_000);
+        console.log("priceQuote9: ", priceQuote9 / 100_000_000);
+        console.log("priceQuote10: ", priceQuote10 / 1_000_000_000);
+    }   
 
     function liquidateTroves(address asset) internal {
         ITroveManager(troveManager).liquidateTroves(asset, 100);
