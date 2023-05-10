@@ -483,7 +483,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
      * To account for inaccurate TWAP values and also swap fees and slippage to go from collateral to want
      */
     function updateCollateralValueAdjustmentBPS(uint256 _collateralValueAdjustmentBPS) external {
-        _atLeastRole(STRATEGIST);
+        _atLeastRole(GUARDIAN);
         require(_collateralValueAdjustmentBPS > 9500 && _collateralValueAdjustmentBPS <= PERCENT_DIVISOR, "Invalid collateral adjustment value");
         collateralValueAdjustmentBPS = _collateralValueAdjustmentBPS;
     }
