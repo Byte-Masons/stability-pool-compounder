@@ -190,6 +190,10 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
             if (collateralBalance != 0) {
                 uint256 assetValue = _getUSDEquivalentOfCollateral(asset, collateralBalance);
                 uint256 assetValueUsdc = assetValue * _getUsdcPrice() / (10 ** _getUsdcDecimals());
+                // ^ I believe this should be:
+                // assetValueUsdc = assetValue * (10**_getUsdcDecimals()) / _getUsdcPrice()
+                // since you're going from USD -> USDC, you would divide by the price (not multiply)
+                // example, if the price of USDC is 1.04 USD, "assetValueUsdc" should be lower than
                 uint256 minAmountOut = (assetValueUsdc * minAmountOutBPS) / PERCENT_DIVISOR;
                 uint256 scaledMinAmountOut = _getScaledToCollAmount(minAmountOut, usdc.decimals());
                 _swapUniV3(
@@ -278,9 +282,16 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
      * the Velodrome USDC-ERN TWAP and collateral+USDC value discounted slightly.
      */
     function balanceOfPool() public view returns (uint256) {
-        uint256 lusdValue = stabilityPool.getCompoundedLUSDDeposit(address(this));
+        uint256 lusdValue = stabilityPool.getCompoundedLUSDDeposit(address(this)); // should also add any local balance of ERN?
         uint256 collateralValue = getWantValueInCollateral();
         uint256 adjustedCollateralValue = collateralValue * collateralValueAdjustmentBPS / PERCENT_DIVISOR;
+        // I don't quite understand the purpose of collateralValueAdjustmentBPS
+        // If I define [1] and [2] as follows:
+        // [1] = ERN in hand + ERN in pool
+        // [2] = raw collateral -> converted to USD -> converted to USDC -> converted to ERN using velo TWAP
+        // [1] + [2] seems good enough as is
+        // I don't understand why we need to reduce [2] by some % when we are already doing the full conversion and using the velo TWAP
+        // Could you please explain the reason for it?
 
         return lusdValue + adjustedCollateralValue;
     }
@@ -289,6 +300,9 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
      * @dev Calculates the estimated want value of collateral and USDC using Chainlink oracles
      * and the Velodrome USDC-ERN TWAP.
      */
+    // 'getERNValueOfCollateralGain' might be a better name.. I think it's fine to call "want" as ERN explicitly
+    // for the sake of clarity since there are a lot of different tokens in this strategy. As someone who didn't code
+    // the strategy the explicit naming helps.
     function getWantValueInCollateral() public view returns (uint256 wantValueInCollateral) {
         uint256 usdValueOfCollateral = getUsdValueInCollateral();
         uint256 usdcValueOfCollateral = _getUsdcEquivalentOfUSD(usdValueOfCollateral);
@@ -297,6 +311,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         wantValueInCollateral = veloUsdcErnPool.quote(address(usdc), totalUsdcValue, veloUsdcErnQuoteGranularity);
     }
 
+    // 'getUSDValueOfCollateralGain' might be a better name
     function getUsdValueInCollateral() public view returns (uint256 usdValueOfCollateral) {
         (address[] memory assets, uint256[] memory amounts) = stabilityPool.getDepositorCollateralGain(address(this));
         for (uint256 i = 0; i < assets.length; i++) {
@@ -354,6 +369,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     /**
      * @dev Returns the decimals the aggregator uses for USDC (usually 8)
      */
+    // "_getUsdcPriceDecimals" might be a better name and clarify the intent
     function _getUsdcDecimals() internal view returns (uint256 decimals) {
         AggregatorV3Interface aggregator = AggregatorV3Interface(chainlinkUsdcOracle);
         decimals = uint256(aggregator.decimals());
@@ -365,11 +381,14 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     function _getCollateralPrice(address _collateral) internal view returns (uint256 price) {
         AggregatorV3Interface aggregator = AggregatorV3Interface(priceFeed.priceAggregator(_collateral));
         price = uint256(aggregator.latestAnswer());
+        // could you please look at PriceFeed#_badChainlinkResponse() and see if we need to do any double-checking?
+        // it also uses `latestRoundData` instead of `latestAnswer`, not sure what the drawbacks of using `latestAnswer` are
     }
 
     /**
      * @dev Returns the decimals the aggregator uses for {_collateral} (usually 8)
      */
+    // "_getCollateralPriceDecimals" might be a better name and clarify the intent
     function _getCollateralDecimals(address _collateral) internal view returns (uint256 decimals) {
         AggregatorV3Interface aggregator = AggregatorV3Interface(priceFeed.priceAggregator(_collateral));
         decimals = uint256(aggregator.decimals());
@@ -378,6 +397,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     /**
      * @dev Scales {_collAmount} given in {_collDecimals} to an 18 decimal amount
      */
+    // "_scaleTo18Decimals" might be a better name
     function _getScaledFromCollAmount(uint256 _collAmount, uint256 _collDecimals)
         internal
         pure
@@ -394,6 +414,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     /**
      * @dev Scales {_collAmount} given in 18 decimals to an amount in {_collDecimals}
      */
+    // "_scaleToCollDecimals" might be a better name
     function _getScaledToCollAmount(uint256 _collAmount, uint256 _collDecimals)
         internal
         pure
