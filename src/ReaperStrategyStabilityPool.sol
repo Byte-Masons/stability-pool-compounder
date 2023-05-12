@@ -31,7 +31,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     IVelodromePair public veloUsdcErnPool;
 
     uint256 public constant ETHOS_DECIMALS = 18;
-    uint256 public minAmountOutBPS;
+    uint256 public usdcMinAmountOutBPS;
     uint256 public ernMinAmountOutBPS;
     uint256 public collateralValueAdjustmentBPS;
     uint256 public veloUsdcErnQuoteGranularity;
@@ -101,7 +101,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         usdc = IERC20MetadataUpgradeable(_tokens.usdc);
         exchangeSettings = _exchangeSettings;
 
-        minAmountOutBPS = 9800;
+        usdcMinAmountOutBPS = 9800;
         ernMinAmountOutBPS = 9800;
         usdcToErnExchange = Exchange.Velodrome;
 
@@ -189,12 +189,8 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
             uint256 collateralBalance = IERC20MetadataUpgradeable(asset).balanceOf(address(this));
             if (collateralBalance != 0) {
                 uint256 assetValue = _getUSDEquivalentOfCollateral(asset, collateralBalance);
-                uint256 assetValueUsdc = assetValue * _getUsdcPrice() / (10 ** _getUsdcDecimals());
-                // ^ I believe this should be:
-                // assetValueUsdc = assetValue * (10**_getUsdcDecimals()) / _getUsdcPrice()
-                // since you're going from USD -> USDC, you would divide by the price (not multiply)
-                // example, if the price of USDC is 1.04 USD, "assetValueUsdc" should be lower than
-                uint256 minAmountOut = (assetValueUsdc * minAmountOutBPS) / PERCENT_DIVISOR;
+                uint256 assetValueUsdc = assetValue * (10 ** _getUsdcPriceDecimals()) / _getUsdcPrice();
+                uint256 minAmountOut = (assetValueUsdc * usdcMinAmountOutBPS) / PERCENT_DIVISOR;
                 uint256 scaledMinAmountOut = _getScaledToCollAmount(minAmountOut, usdc.decimals());
                 _swapUniV3(
                     asset,
@@ -277,47 +273,40 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     }
 
     /**
-     * @dev Estimates the amount of want held in the stability pool and any
+     * @dev Estimates the amount of ERN held in the stability pool and any
      * balance of collateral or USDC. The values are converted using oracles and
      * the Velodrome USDC-ERN TWAP and collateral+USDC value discounted slightly.
      */
     function balanceOfPool() public view returns (uint256) {
-        uint256 lusdValue = stabilityPool.getCompoundedLUSDDeposit(address(this)); // should also add any local balance of ERN?
-        uint256 collateralValue = getWantValueInCollateral();
-        uint256 adjustedCollateralValue = collateralValue * collateralValueAdjustmentBPS / PERCENT_DIVISOR;
-        // I don't quite understand the purpose of collateralValueAdjustmentBPS
-        // If I define [1] and [2] as follows:
-        // [1] = ERN in hand + ERN in pool
-        // [2] = raw collateral -> converted to USD -> converted to USDC -> converted to ERN using velo TWAP
-        // [1] + [2] seems good enough as is
-        // I don't understand why we need to reduce [2] by some % when we are already doing the full conversion and using the velo TWAP
-        // Could you please explain the reason for it?
+        uint256 depositedErn = stabilityPool.getCompoundedLUSDDeposit(address(this));
+        uint256 ernCollateralValue = getERNValueOfCollateralGain();
+        uint256 adjustedCollateralValue = ernCollateralValue * collateralValueAdjustmentBPS / PERCENT_DIVISOR;
 
-        return lusdValue + adjustedCollateralValue;
+        return depositedErn + adjustedCollateralValue;
     }
 
     /**
-     * @dev Calculates the estimated want value of collateral and USDC using Chainlink oracles
+     * @dev Calculates the estimated ERN value of collateral and USDC using Chainlink oracles
      * and the Velodrome USDC-ERN TWAP.
      */
-    // 'getERNValueOfCollateralGain' might be a better name.. I think it's fine to call "want" as ERN explicitly
-    // for the sake of clarity since there are a lot of different tokens in this strategy. As someone who didn't code
-    // the strategy the explicit naming helps.
-    function getWantValueInCollateral() public view returns (uint256 wantValueInCollateral) {
-        uint256 usdValueOfCollateral = getUsdValueInCollateral();
-        uint256 usdcValueOfCollateral = _getUsdcEquivalentOfUSD(usdValueOfCollateral);
+    function getERNValueOfCollateralGain() public view returns (uint256 ernValueOfCollateral) {
+        uint256 usdValueOfCollateralGain = getUSDValueOfCollateralGain();
+        uint256 usdcValueOfCollateral = _getUsdcEquivalentOfUSD(usdValueOfCollateralGain);
         uint256 usdcBalance = usdc.balanceOf(address(this));
         uint256 totalUsdcValue = usdcBalance + usdcValueOfCollateral;
-        wantValueInCollateral = veloUsdcErnPool.quote(address(usdc), totalUsdcValue, veloUsdcErnQuoteGranularity);
+        ernValueOfCollateral = veloUsdcErnPool.quote(address(usdc), totalUsdcValue, veloUsdcErnQuoteGranularity);
     }
 
-    // 'getUSDValueOfCollateralGain' might be a better name
-    function getUsdValueInCollateral() public view returns (uint256 usdValueOfCollateral) {
+    /**
+     * @dev Calculates the estimated USD value of collateral gains using Chainlink oracles
+     * {usdValueOfCollateralGain} is the USD value of all collateral in 18 decimals
+     */
+    function getUSDValueOfCollateralGain() public view returns (uint256 usdValueOfCollateralGain) {
         (address[] memory assets, uint256[] memory amounts) = stabilityPool.getDepositorCollateralGain(address(this));
         for (uint256 i = 0; i < assets.length; i++) {
             address asset = assets[i];
             uint256 amount = amounts[i] + IERC20MetadataUpgradeable(asset).balanceOf(address(this));
-            usdValueOfCollateral += _getUSDEquivalentOfCollateral(asset, amount);
+            usdValueOfCollateralGain += _getUSDEquivalentOfCollateral(asset, amount);
         }
     }
 
@@ -328,7 +317,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     function _getUSDEquivalentOfCollateral(address _collateral, uint256 _amount) internal view returns (uint256) {
         uint256 scaledAmount = _getScaledFromCollAmount(_amount, IERC20MetadataUpgradeable(_collateral).decimals());
         uint256 price = _getCollateralPrice(_collateral);
-        uint256 USDAssetValue = (scaledAmount * price) / (10 ** _getCollateralDecimals(_collateral));
+        uint256 USDAssetValue = (scaledAmount * price) / (10 ** _getCollateralPriceDecimals(_collateral));
         return USDAssetValue;
     }
 
@@ -339,7 +328,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     function _getUsdcEquivalentOfUSD(uint256 _amount) internal view returns (uint256) {
         uint256 scaledAmount = _getScaledToCollAmount(_amount, usdc.decimals());
         uint256 price = _getUsdcPrice();
-        uint256 usdcAmount = (scaledAmount * (10 ** _getUsdcDecimals())) / price;
+        uint256 usdcAmount = (scaledAmount * (10 ** _getUsdcPriceDecimals())) / price;
         return usdcAmount;
     }
 
@@ -369,8 +358,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     /**
      * @dev Returns the decimals the aggregator uses for USDC (usually 8)
      */
-    // "_getUsdcPriceDecimals" might be a better name and clarify the intent
-    function _getUsdcDecimals() internal view returns (uint256 decimals) {
+    function _getUsdcPriceDecimals() internal view returns (uint256 decimals) {
         AggregatorV3Interface aggregator = AggregatorV3Interface(chainlinkUsdcOracle);
         decimals = uint256(aggregator.decimals());
     }
@@ -388,8 +376,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     /**
      * @dev Returns the decimals the aggregator uses for {_collateral} (usually 8)
      */
-    // "_getCollateralPriceDecimals" might be a better name and clarify the intent
-    function _getCollateralDecimals(address _collateral) internal view returns (uint256 decimals) {
+    function _getCollateralPriceDecimals(address _collateral) internal view returns (uint256 decimals) {
         AggregatorV3Interface aggregator = AggregatorV3Interface(priceFeed.priceAggregator(_collateral));
         decimals = uint256(aggregator.decimals());
     }
@@ -453,18 +440,18 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     }
 
     /**
-     * @dev Updates the {minAmountOutBPS} which is the minimum amount accepted in a collateral swap in BPS
-     * So 9500 would allow a 5% slippage.
+     * @dev Updates the {usdcMinAmountOutBPS} which is the minimum amount accepted in a collateral to USDC swap 
+     * In BPS so 9500 would allow a 5% slippage.
      */
-    function updateMinAmountOutBPS(uint256 _minAmountOutBPS) external {
+    function updateUsdcMinAmountOutBPS(uint256 _usdcMinAmountOutBPS) external {
         _atLeastRole(STRATEGIST);
-        require(_minAmountOutBPS > 8000 && _minAmountOutBPS < PERCENT_DIVISOR, "Invalid slippage value");
-        minAmountOutBPS = _minAmountOutBPS;
+        require(_usdcMinAmountOutBPS > 8000 && _usdcMinAmountOutBPS < PERCENT_DIVISOR, "Invalid slippage value");
+        usdcMinAmountOutBPS = _usdcMinAmountOutBPS;
     }
 
     /**
-     * @dev Updates the {ernMinAmountOutBPS} which is the minimum amount accepted in a USDC->ERN/want swap in BPS
-     * So 9500 would allow a 5% slippage.
+     * @dev Updates the {ernMinAmountOutBPS} which is the minimum amount accepted in a USDC->ERN/want swap.
+     * In BPS so 9500 would allow a 5% slippage.
      */
     function updateErnMinAmountOutBPS(uint256 _ernMinAmountOutBPS) external {
         _atLeastRole(STRATEGIST);

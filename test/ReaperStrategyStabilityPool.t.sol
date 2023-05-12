@@ -227,7 +227,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         vm.prank(opHolder);
         IERC20Mintable(opAddress).approve(address(wrappedProxy), opBalance);
 
-        wrappedProxy.updateMinAmountOutBPS(9950);
+        wrappedProxy.updateUsdcMinAmountOutBPS(9950);
         wrappedProxy.updateErnMinAmountOutBPS(9950);
 
         ReaperStrategyStabilityPool.Exchange currentExchange = ReaperStrategyStabilityPool.Exchange.Velodrome;
@@ -653,7 +653,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         skip(timeToSkip);
         uint256 sharePrice4 = vault.getPricePerFullShare();
 
-        wrappedProxy.getWantValueInCollateral();
+        wrappedProxy.getERNValueOfCollateralGain();
 
         console.log("sharePrice1: ", sharePrice1);
         console.log("sharePrice2: ", sharePrice2);
@@ -716,13 +716,13 @@ contract ReaperStrategyStabilityPoolTest is Test {
         // aggregator.proposeAggregator(address(mockChainlink));
         // aggregator.confirmAggregator(address(mockChainlink));
 
-        uint256 valueInCollateralBefore = wrappedProxy.getWantValueInCollateral();
+        uint256 valueInCollateralBefore = wrappedProxy.getERNValueOfCollateralGain();
         uint256 poolBalanceBefore = wrappedProxy.balanceOfPool();
 
         uint256 usdcAmount = 100_000 * (10 ** 6);
         deal({token: usdcAddress, to: address(wrappedProxy), give: usdcAmount});
 
-        uint256 valueInCollateralAfter = wrappedProxy.getWantValueInCollateral();
+        uint256 valueInCollateralAfter = wrappedProxy.getERNValueOfCollateralGain();
         uint256 poolBalanceAfter = wrappedProxy.balanceOfPool();
         console.log("valueInCollateralBefore: ", valueInCollateralBefore);
         console.log("valueInCollateralAfter: ", valueInCollateralAfter);
@@ -765,7 +765,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         vault.deposit(wantBalance);
         wrappedProxy.harvest();
 
-        // uint256 valueInCollateralBefore = wrappedProxy.getWantValueInCollateral();
+        // uint256 valueInCollateralBefore = wrappedProxy.getERNValueOfCollateralGain();
         uint256 poolBalanceBefore = wrappedProxy.balanceOfPool();
 
         uint256 wbtcAmount = 1 * (10 ** 8);
@@ -775,7 +775,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         deal({token: wethAddress, to: address(wrappedProxy), give: wethAmount});
         deal({token: opAddress, to: address(wrappedProxy), give: opAmount});
 
-        // uint256 valueInCollateralAfter = wrappedProxy.getWantValueInCollateral();
+        // uint256 valueInCollateralAfter = wrappedProxy.getERNValueOfCollateralGain();
         uint256 poolBalanceAfter = wrappedProxy.balanceOfPool();
         // console.log("valueInCollateralBefore: ", valueInCollateralBefore);
         // console.log("valueInCollateralAfter: ", valueInCollateralAfter);
@@ -806,7 +806,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         console.log("wethUsdValue: ", wethUsdValue);
         console.log("opUsdValue: ", opUsdValue);
         
-        uint256 usdValueInCollateral = wrappedProxy.getUsdValueInCollateral();
+        uint256 usdValueInCollateral = wrappedProxy.getUSDValueOfCollateralGain();
         console.log("expectedUsdValueInCollateral: ", expectedUsdValueInCollateral);
         console.log("usdValueInCollateral: ", usdValueInCollateral);
         assertEq(usdValueInCollateral, expectedUsdValueInCollateral);
@@ -821,7 +821,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         // IVelodromePair pool = IVelodromePair(veloUsdcErnPool);
         // uint256 granularity = wrappedProxy.veloUsdcErnQuoteGranularity();
         uint256 ernAmount = IVelodromePair(veloUsdcErnPool).quote(usdcAddress, usdcAmount, wrappedProxy.veloUsdcErnQuoteGranularity());
-        uint256 wantValueInCollateral = wrappedProxy.getWantValueInCollateral();
+        uint256 wantValueInCollateral = wrappedProxy.getERNValueOfCollateralGain();
 
         console.log("ernAmount: ", ernAmount);
         console.log("wantValueInCollateral: ", wantValueInCollateral);
@@ -863,7 +863,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         deal({token: wethAddress, to: address(wrappedProxy), give: wethAmount});
         deal({token: opAddress, to: address(wrappedProxy), give: opAmount});
 
-        uint256 valueInCollateral = wrappedProxy.getWantValueInCollateral();
+        uint256 valueInCollateral = wrappedProxy.getERNValueOfCollateralGain();
         console.log("valueInCollateral: ", valueInCollateral);
 
         uint256 newUsdcPrice = usdcPrice * 9500 / BPS_UNIT;
@@ -875,7 +875,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         // console.log("usdcPrice: ", usdcPrice);
 
         uint256 expectedValueInCollateral = valueInCollateral * 10_526 / BPS_UNIT;
-        valueInCollateral = wrappedProxy.getWantValueInCollateral();
+        valueInCollateral = wrappedProxy.getERNValueOfCollateralGain();
         console.log("expectedValueInCollateral: ", expectedValueInCollateral);
         console.log("valueInCollateral: ", valueInCollateral);
         assertApproxEqRel(valueInCollateral, expectedValueInCollateral, 0.005e18);
