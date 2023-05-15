@@ -191,7 +191,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
                 uint256 assetValue = _getUSDEquivalentOfCollateral(asset, collateralBalance);
                 uint256 assetValueUsdc = assetValue * (10 ** _getUsdcPriceDecimals()) / _getUsdcPrice();
                 uint256 minAmountOut = (assetValueUsdc * usdcMinAmountOutBPS) / PERCENT_DIVISOR;
-                uint256 scaledMinAmountOut = _getScaledToCollAmount(minAmountOut, usdc.decimals());
+                uint256 scaledMinAmountOut = _scaleToCollateralDecimals(minAmountOut, usdc.decimals());
                 _swapUniV3(
                     asset,
                     address(usdc),
@@ -315,7 +315,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
      * The precision of {_amount} is whatever {_collateral}'s native decimals are (ex. 8 for wBTC)
      */
     function _getUSDEquivalentOfCollateral(address _collateral, uint256 _amount) internal view returns (uint256) {
-        uint256 scaledAmount = _getScaledFromCollAmount(_amount, IERC20MetadataUpgradeable(_collateral).decimals());
+        uint256 scaledAmount = _scaleTo18Decimals(_amount, IERC20MetadataUpgradeable(_collateral).decimals());
         uint256 price = _getCollateralPrice(_collateral);
         uint256 USDAssetValue = (scaledAmount * price) / (10 ** _getCollateralPriceDecimals(_collateral));
         return USDAssetValue;
@@ -326,7 +326,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
      * The precision of {_amount} is 18 decimals
      */
     function _getUsdcEquivalentOfUSD(uint256 _amount) internal view returns (uint256) {
-        uint256 scaledAmount = _getScaledToCollAmount(_amount, usdc.decimals());
+        uint256 scaledAmount = _scaleToCollateralDecimals(_amount, usdc.decimals());
         uint256 price = _getUsdcPrice();
         uint256 usdcAmount = (scaledAmount * (10 ** _getUsdcPriceDecimals())) / price;
         return usdcAmount;
@@ -369,8 +369,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     function _getCollateralPrice(address _collateral) internal view returns (uint256 price) {
         AggregatorV3Interface aggregator = AggregatorV3Interface(priceFeed.priceAggregator(_collateral));
         price = uint256(aggregator.latestAnswer());
-        // could you please look at PriceFeed#_badChainlinkResponse() and see if we need to do any double-checking?
-        // it also uses `latestRoundData` instead of `latestAnswer`, not sure what the drawbacks of using `latestAnswer` are
     }
 
     /**
@@ -384,8 +382,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     /**
      * @dev Scales {_collAmount} given in {_collDecimals} to an 18 decimal amount
      */
-    // "_scaleTo18Decimals" might be a better name
-    function _getScaledFromCollAmount(uint256 _collAmount, uint256 _collDecimals)
+    function _scaleTo18Decimals(uint256 _collAmount, uint256 _collDecimals)
         internal
         pure
         returns (uint256 scaledColl)
@@ -401,8 +398,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     /**
      * @dev Scales {_collAmount} given in 18 decimals to an amount in {_collDecimals}
      */
-    // "_scaleToCollDecimals" might be a better name
-    function _getScaledToCollAmount(uint256 _collAmount, uint256 _collDecimals)
+    function _scaleToCollateralDecimals(uint256 _collAmount, uint256 _collDecimals)
         internal
         pure
         returns (uint256 scaledColl)
