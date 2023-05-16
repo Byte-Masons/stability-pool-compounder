@@ -315,7 +315,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
      * The precision of {_amount} is whatever {_collateral}'s native decimals are (ex. 8 for wBTC)
      */
     function _getUSDEquivalentOfCollateral(address _collateral, uint256 _amount) internal view returns (uint256) {
-        uint256 scaledAmount = _scaleTo18Decimals(_amount, IERC20MetadataUpgradeable(_collateral).decimals());
+        uint256 scaledAmount = _scaleToEthosDecimals(_amount, IERC20MetadataUpgradeable(_collateral).decimals());
         uint256 price = _getCollateralPrice(_collateral);
         uint256 USDAssetValue = (scaledAmount * price) / (10 ** _getCollateralPriceDecimals(_collateral));
         return USDAssetValue;
@@ -380,9 +380,9 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     }
 
     /**
-     * @dev Scales {_collAmount} given in {_collDecimals} to an 18 decimal amount
+     * @dev Scales {_collAmount} given in {_collDecimals} to an 18 decimal amount (used by Ethos)
      */
-    function _scaleTo18Decimals(uint256 _collAmount, uint256 _collDecimals)
+    function _scaleToEthosDecimals(uint256 _collAmount, uint256 _collDecimals)
         internal
         pure
         returns (uint256 scaledColl)
