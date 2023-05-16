@@ -16,7 +16,7 @@ import {IERC20MetadataUpgradeable} from "oz-upgradeable/token/ERC20/extensions/I
 import {SafeERC20Upgradeable} from "oz-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 import {MathUpgradeable} from "oz-upgradeable/utils/math/MathUpgradeable.sol";
 /**
- * @dev Strategy to _compound rewards and liquidation collateral gains in the Ethos stability pool
+ * @dev Strategy to compound rewards and liquidation collateral gains in the Ethos stability pool
  */
 contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, UniV3Mixin, BalMixin {
     using SafeERC20Upgradeable for IERC20MetadataUpgradeable;
@@ -26,15 +26,15 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     IPriceFeed public priceFeed;
     IERC20MetadataUpgradeable public oath;
     IERC20MetadataUpgradeable public usdc;
-    ExchangeSettings public exchangeSettings;
+    ExchangeSettings public exchangeSettings; // Holds addresses needed to use Velo, UniV3 and Bal mixins
     AggregatorV3Interface public chainlinkUsdcOracle;
     IVelodromePair public veloUsdcErnPool;
 
-    uint256 public constant ETHOS_DECIMALS = 18;
-    uint256 public usdcMinAmountOutBPS;
-    uint256 public ernMinAmountOutBPS;
-    uint256 public compoundingFeeMarginBPS;
-    uint256 public veloUsdcErnQuoteGranularity;
+    uint256 public constant ETHOS_DECIMALS = 18; // Decimals used by ETHOS
+    uint256 public usdcMinAmountOutBPS; // The max allowed slippage when trading in to USDC
+    uint256 public ernMinAmountOutBPS; // The max allowed slippage when trading in to ERN
+    uint256 public compoundingFeeMarginBPS; // How much collateral value is lowered to account for the costs of swapping
+    uint256 public veloUsdcErnQuoteGranularity; // How many samples to look at for Velo pool TWAP
 
     enum Exchange {
         Velodrome,
@@ -42,7 +42,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         UniV3
     }
 
-    Exchange public usdcToErnExchange;
+    Exchange public usdcToErnExchange; // Controls which exchange is used to swap USDC to ERN
 
     struct ExchangeSettings {
         address veloRouter;
