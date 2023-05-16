@@ -737,8 +737,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
         // using the Velo TWAP
         assertEq(valueInCollateralAfter, priceQuote);
 
-        uint256 collateralValueAdjustmentBPS = wrappedProxy.collateralValueAdjustmentBPS();
-        uint256 expectedPoolBalance = valueInCollateralAfter * collateralValueAdjustmentBPS / BPS_UNIT;
+        uint256 compoundingFeeMarginBPS = wrappedProxy.compoundingFeeMarginBPS();
+        uint256 expectedPoolBalance = valueInCollateralAfter * compoundingFeeMarginBPS / BPS_UNIT;
         console.log("expectedPoolBalance: ", expectedPoolBalance);
         assertEq(poolBalanceAfter, expectedPoolBalance);
     }
@@ -827,8 +827,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
         console.log("wantValueInCollateral: ", wantValueInCollateral);
         assertEq(ernAmount, wantValueInCollateral);
 
-        uint256 collateralValueAdjustmentBPS = wrappedProxy.collateralValueAdjustmentBPS();
-        uint256 expectedPoolIncrease = ernAmount * collateralValueAdjustmentBPS / BPS_UNIT;
+        uint256 compoundingFeeMarginBPS = wrappedProxy.compoundingFeeMarginBPS();
+        uint256 expectedPoolIncrease = ernAmount * compoundingFeeMarginBPS / BPS_UNIT;
         //console.log("poolBalanceIncrease: ", poolBalanceAfter - poolBalanceBefore);
         // console.log("expectedPoolIncrease: ", expectedPoolIncrease);
         // assertEq(poolBalanceAfter - poolBalanceBefore, expectedPoolIncrease);

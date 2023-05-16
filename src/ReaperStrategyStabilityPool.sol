@@ -33,7 +33,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     uint256 public constant ETHOS_DECIMALS = 18;
     uint256 public usdcMinAmountOutBPS;
     uint256 public ernMinAmountOutBPS;
-    uint256 public collateralValueAdjustmentBPS;
+    uint256 public compoundingFeeMarginBPS;
     uint256 public veloUsdcErnQuoteGranularity;
 
     enum Exchange {
@@ -112,7 +112,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         chainlinkUsdcOracle = AggregatorV3Interface(_chainlinkUsdcOracle);
         veloUsdcErnPool = IVelodromePair(_pools.veloUsdcErnPool);
         veloUsdcErnQuoteGranularity = 2;
-        collateralValueAdjustmentBPS = 9800;
+        compoundingFeeMarginBPS = 9950;
     }
 
     function _adjustPosition(uint256 _debt) internal override {
@@ -280,7 +280,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     function balanceOfPool() public view returns (uint256) {
         uint256 depositedErn = stabilityPool.getCompoundedLUSDDeposit(address(this));
         uint256 ernCollateralValue = getERNValueOfCollateralGain();
-        uint256 adjustedCollateralValue = ernCollateralValue * collateralValueAdjustmentBPS / PERCENT_DIVISOR;
+        uint256 adjustedCollateralValue = ernCollateralValue * compoundingFeeMarginBPS / PERCENT_DIVISOR;
 
         return depositedErn + adjustedCollateralValue;
     }
@@ -483,12 +483,12 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     }
 
     /**
-     * @dev Updates the value used to adjust the value of collateral down slightly (between 0-5%)
-     * To account for inaccurate TWAP values and also swap fees and slippage to go from collateral to want
+     * @dev Updates the value used to adjust the value of collateral down slightly (between 0-2%)
+     * To account for swap fees and slippage to go from collateral to want
      */
-    function updateCollateralValueAdjustmentBPS(uint256 _collateralValueAdjustmentBPS) external {
+    function updateCompoundingFeeMarginBPS(uint256 _compoundingFeeMarginBPS) external {
         _atLeastRole(GUARDIAN);
-        require(_collateralValueAdjustmentBPS > 9500 && _collateralValueAdjustmentBPS <= PERCENT_DIVISOR, "Invalid collateral adjustment value");
-        collateralValueAdjustmentBPS = _collateralValueAdjustmentBPS;
+        require(_compoundingFeeMarginBPS > 9800 && _compoundingFeeMarginBPS <= PERCENT_DIVISOR, "Invalid compoundingFeeMarginBPS value");
+        compoundingFeeMarginBPS = _compoundingFeeMarginBPS;
     }
 }
