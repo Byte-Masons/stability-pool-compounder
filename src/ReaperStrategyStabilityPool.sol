@@ -15,6 +15,7 @@ import {BalMixin} from "mixins/BalMixin.sol";
 import {IERC20MetadataUpgradeable} from "oz-upgradeable/token/ERC20/extensions/IERC20MetadataUpgradeable.sol";
 import {SafeERC20Upgradeable} from "oz-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 import {MathUpgradeable} from "oz-upgradeable/utils/math/MathUpgradeable.sol";
+
 /**
  * @dev Strategy to compound rewards and liquidation collateral gains in the Ethos stability pool
  */
@@ -352,15 +353,26 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
      */
     function _getUsdcPrice() internal view returns (uint256 price) {
         AggregatorV3Interface aggregator = AggregatorV3Interface(chainlinkUsdcOracle);
-        price = uint256(aggregator.latestAnswer());
+
+        try aggregator.latestRoundData() returns (uint80, int256 answer, uint256, uint256, uint80)
+        {
+            price = uint256(answer);
+        } catch {
+            price = 10 ** _getUsdcPriceDecimals(); // default to 1$
+        }
     }
 
     /**
      * @dev Returns the decimals the aggregator uses for USDC (usually 8)
      */
-    function _getUsdcPriceDecimals() internal view returns (uint256 decimals) {
+    function _getUsdcPriceDecimals() internal view returns (uint256) {
         AggregatorV3Interface aggregator = AggregatorV3Interface(chainlinkUsdcOracle);
-        decimals = uint256(aggregator.decimals());
+
+        try aggregator.decimals() returns (uint8 decimals) {
+            return decimals;
+        } catch {
+            return 8;
+        }
     }
 
     /**
