@@ -159,7 +159,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         _compound();
 
         uint256 allocated = IVault(vault).strategies(address(this)).allocated;
-        uint256 totalAssets = balanceOf();
+        uint256 totalAssets = balanceOfUsingPriceFeed();
         uint256 toFree = MathUpgradeable.min(_debt, totalAssets);
 
         if (totalAssets > allocated) {
@@ -191,7 +191,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
 
             uint256 collateralBalance = IERC20MetadataUpgradeable(asset).balanceOf(address(this));
             if (collateralBalance != 0) {
-                uint256 assetValue = _getUSDEquivalentOfCollateral(asset, collateralBalance);
+                uint256 assetValue = _getUSDEquivalentOfCollateralUsingPriceFeed(asset, collateralBalance);
                 uint256 assetValueUsdc = assetValue * (10 ** _getUsdcPriceDecimals()) / _getUsdcPrice();
                 uint256 minAmountOut = (assetValueUsdc * usdcMinAmountOutBPS) / PERCENT_DIVISOR;
                 uint256 scaledMinAmountOut = _scaleToCollateralDecimals(minAmountOut, usdc.decimals());
@@ -269,6 +269,15 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     }
 
     /**
+     * @dev Function to calculate the total {want} held by the strat.
+     * It takes into account both the funds in hand, the funds in the stability pool,
+     * and also the balance of collateral tokens + USDC.
+     */
+    function balanceOfUsingPriceFeed() public returns (uint256) {
+        return balanceOfPoolUsingPriceFeed() + balanceOfWant();
+    }
+
+    /**
      * @dev The want balance directly held in the strategy itself.
      */
     function balanceOfWant() public view returns (uint256) {
@@ -289,11 +298,36 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     }
 
     /**
+     * @dev Estimates the amount of ERN held in the stability pool and any
+     * balance of collateral or USDC. The values are converted using oracles and
+     * the Velodrome USDC-ERN TWAP and collateral+USDC value discounted slightly.
+     */
+    function balanceOfPoolUsingPriceFeed() public returns (uint256) {
+        uint256 depositedErn = stabilityPool.getCompoundedLUSDDeposit(address(this));
+        uint256 ernCollateralValue = getERNValueOfCollateralGainUsingPriceFeed();
+        uint256 adjustedCollateralValue = ernCollateralValue * compoundingFeeMarginBPS / PERCENT_DIVISOR;
+
+        return depositedErn + adjustedCollateralValue;
+    }
+
+    /**
      * @dev Calculates the estimated ERN value of collateral and USDC using Chainlink oracles
      * and the Velodrome USDC-ERN TWAP.
      */
     function getERNValueOfCollateralGain() public view returns (uint256 ernValueOfCollateral) {
         uint256 usdValueOfCollateralGain = getUSDValueOfCollateralGain();
+        uint256 usdcValueOfCollateral = _getUsdcEquivalentOfUSD(usdValueOfCollateralGain);
+        uint256 usdcBalance = usdc.balanceOf(address(this));
+        uint256 totalUsdcValue = usdcBalance + usdcValueOfCollateral;
+        ernValueOfCollateral = veloUsdcErnPool.quote(address(usdc), totalUsdcValue, veloUsdcErnQuoteGranularity);
+    }
+
+    /**
+     * @dev Calculates the estimated ERN value of collateral and USDC using the Ethos price feed
+     * and the Velodrome USDC-ERN TWAP.
+     */
+    function getERNValueOfCollateralGainUsingPriceFeed() public returns (uint256 ernValueOfCollateral) {
+        uint256 usdValueOfCollateralGain = getUSDValueOfCollateralGainUsingPriceFeed();
         uint256 usdcValueOfCollateral = _getUsdcEquivalentOfUSD(usdValueOfCollateralGain);
         uint256 usdcBalance = usdc.balanceOf(address(this));
         uint256 totalUsdcValue = usdcBalance + usdcValueOfCollateral;
@@ -314,6 +348,19 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     }
 
     /**
+     * @dev Calculates the estimated USD value of collateral gains using the Ethos price feed
+     * {usdValueOfCollateralGain} is the USD value of all collateral in 18 decimals
+     */
+    function getUSDValueOfCollateralGainUsingPriceFeed() public returns (uint256 usdValueOfCollateralGain) {
+        (address[] memory assets, uint256[] memory amounts) = stabilityPool.getDepositorCollateralGain(address(this));
+        for (uint256 i = 0; i < assets.length; i++) {
+            address asset = assets[i];
+            uint256 amount = amounts[i] + IERC20MetadataUpgradeable(asset).balanceOf(address(this));
+            usdValueOfCollateralGain += _getUSDEquivalentOfCollateralUsingPriceFeed(asset, amount);
+        }
+    }
+
+    /**
      * @dev Returns USD equivalent of {_amount} of {_collateral} with 18 digits of decimal precision.
      * The precision of {_amount} is whatever {_collateral}'s native decimals are (ex. 8 for wBTC)
      */
@@ -321,6 +368,19 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         uint256 scaledAmount = _scaleToEthosDecimals(_amount, IERC20MetadataUpgradeable(_collateral).decimals());
         uint256 price = _getCollateralPrice(_collateral);
         uint256 USDAssetValue = (scaledAmount * price) / (10 ** _getCollateralPriceDecimals(_collateral));
+        return USDAssetValue;
+    }
+
+    /**
+     * @dev Returns USD equivalent of {_amount} of {_collateral} with 18 digits of decimal precision.
+     * The precision of {_amount} is whatever {_collateral}'s native decimals are (ex. 8 for wBTC)
+     * This uses the price feed directly which has a Tellor backup oracle should Chainlink fail.
+     * However it is not view so can only be used in none-view functions
+     */
+    function _getUSDEquivalentOfCollateralUsingPriceFeed(address _collateral, uint256 _amount) internal returns (uint256) {
+        uint256 scaledAmount = _scaleToEthosDecimals(_amount, IERC20MetadataUpgradeable(_collateral).decimals());
+        uint256 price = priceFeed.fetchPrice(_collateral);
+        uint256 USDAssetValue = (scaledAmount * price) / (10 ** ETHOS_DECIMALS);
         return USDAssetValue;
     }
 
