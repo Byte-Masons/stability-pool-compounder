@@ -326,7 +326,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     }
 
     /**
-     * @dev Calculates the estimated ERN value of collateral using the Ethos price feed, Chainlink oracle for USDC 
+     * @dev Calculates the estimated ERN value of collateral using the Ethos price feed, Chainlink oracle for USDC
      * and the Velodrome USDC-ERN TWAP.
      */
     function getERNValueOfCollateralGainUsingPriceFeed() public returns (uint256 ernValueOfCollateral) {
@@ -337,7 +337,11 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     /**
      * @dev Shared logic for getERNValueOfCollateralGain functions.
      */
-    function getERNValueOfCollateralGainCommon(uint256 _usdValueOfCollateralGain) public view returns (uint256 ernValueOfCollateral) {
+    function getERNValueOfCollateralGainCommon(uint256 _usdValueOfCollateralGain)
+        public
+        view
+        returns (uint256 ernValueOfCollateral)
+    {
         uint256 usdcValueOfCollateral = _getUsdcEquivalentOfUSD(_usdValueOfCollateralGain);
         uint256 usdcBalance = usdc.balanceOf(address(this));
         uint256 totalUsdcValue = usdcBalance + usdcValueOfCollateral;
@@ -376,7 +380,8 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
      */
     function _getUSDEquivalentOfCollateral(address _collateral, uint256 _amount) internal view returns (uint256) {
         uint256 price = _getCollateralPrice(_collateral);
-        return _getUSDEquivalentOfCollateralCommon(_collateral, _amount, price, _getCollateralPriceDecimals(_collateral));
+        return
+            _getUSDEquivalentOfCollateralCommon(_collateral, _amount, price, _getCollateralPriceDecimals(_collateral));
     }
 
     /**
@@ -385,7 +390,10 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
      * This uses the price feed directly which has a Tellor backup oracle should Chainlink fail.
      * However it is not view so can only be used in none-view functions
      */
-    function _getUSDEquivalentOfCollateralUsingPriceFeed(address _collateral, uint256 _amount) internal returns (uint256) {
+    function _getUSDEquivalentOfCollateralUsingPriceFeed(address _collateral, uint256 _amount)
+        internal
+        returns (uint256)
+    {
         uint256 price = priceFeed.fetchPrice(_collateral);
         return _getUSDEquivalentOfCollateralCommon(_collateral, _amount, price, ETHOS_DECIMALS);
     }
@@ -393,7 +401,12 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     /**
      * @dev Shared logic for getUSDEquivalentOfCollateral functions
      */
-    function _getUSDEquivalentOfCollateralCommon(address _collateral, uint256 _amount, uint256 _price, uint256 _priceDecimals) internal view returns (uint256) {
+    function _getUSDEquivalentOfCollateralCommon(
+        address _collateral,
+        uint256 _amount,
+        uint256 _price,
+        uint256 _priceDecimals
+    ) internal view returns (uint256) {
         uint256 scaledAmount = _scaleToEthosDecimals(_amount, IERC20MetadataUpgradeable(_collateral).decimals());
         uint256 USDAssetValue = (scaledAmount * _price) / (10 ** _priceDecimals);
         return USDAssetValue;
@@ -431,8 +444,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     function _getUsdcPrice() internal view returns (uint256 price) {
         AggregatorV3Interface aggregator = AggregatorV3Interface(chainlinkUsdcOracle);
 
-        try aggregator.latestRoundData() returns (uint80, int256 answer, uint256, uint256, uint80)
-        {
+        try aggregator.latestRoundData() returns (uint80, int256 answer, uint256, uint256, uint80) {
             price = uint256(answer);
         } catch {
             price = 10 ** _getUsdcPriceDecimals(); // default to 1$
@@ -458,7 +470,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
      */
     function _getCollateralPrice(address _collateral) internal view returns (uint256 price) {
         AggregatorV3Interface aggregator = AggregatorV3Interface(priceFeed.priceAggregator(_collateral));
-        (,int256 answer,,,) = aggregator.latestRoundData();
+        (, int256 answer,,,) = aggregator.latestRoundData();
         price = uint256(answer);
     }
 
@@ -528,7 +540,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     }
 
     /**
-     * @dev Updates the {usdcMinAmountOutBPS} which is the minimum amount accepted in a collateral to USDC swap 
+     * @dev Updates the {usdcMinAmountOutBPS} which is the minimum amount accepted in a collateral to USDC swap
      * In BPS so 9500 would allow a 5% slippage.
      */
     function updateUsdcMinAmountOutBPS(uint256 _usdcMinAmountOutBPS) external {
@@ -580,7 +592,10 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
      */
     function updateCompoundingFeeMarginBPS(uint256 _compoundingFeeMarginBPS) external {
         _atLeastRole(GUARDIAN);
-        require(_compoundingFeeMarginBPS > 9800 && _compoundingFeeMarginBPS <= PERCENT_DIVISOR, "Invalid compoundingFeeMarginBPS value");
+        require(
+            _compoundingFeeMarginBPS > 9800 && _compoundingFeeMarginBPS <= PERCENT_DIVISOR,
+            "Invalid compoundingFeeMarginBPS value"
+        );
         compoundingFeeMarginBPS = _compoundingFeeMarginBPS;
     }
 }

@@ -784,7 +784,6 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
         // console.log("poolBalanceIncrease: ", poolBalanceAfter - poolBalanceBefore);
 
-        
         // console.log("wbtcAggregator: ", wbtcAggregator);
         // console.log("wethAggregator: ", wethAggregator);
         // console.log("opAggregator: ", opAggregator);
@@ -805,7 +804,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         console.log("wbtcUsdValue: ", wbtcUsdValue);
         console.log("wethUsdValue: ", wethUsdValue);
         console.log("opUsdValue: ", opUsdValue);
-        
+
         uint256 usdValueInCollateral = wrappedProxy.getUSDValueOfCollateralGain();
         console.log("expectedUsdValueInCollateral: ", expectedUsdValueInCollateral);
         console.log("usdValueInCollateral: ", usdValueInCollateral);
@@ -820,7 +819,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
         // IVelodromePair pool = IVelodromePair(veloUsdcErnPool);
         // uint256 granularity = wrappedProxy.veloUsdcErnQuoteGranularity();
-        uint256 ernAmount = IVelodromePair(veloUsdcErnPool).quote(usdcAddress, usdcAmount, wrappedProxy.veloUsdcErnQuoteGranularity());
+        uint256 ernAmount =
+            IVelodromePair(veloUsdcErnPool).quote(usdcAddress, usdcAmount, wrappedProxy.veloUsdcErnQuoteGranularity());
         uint256 wantValueInCollateral = wrappedProxy.getERNValueOfCollateralGain();
 
         console.log("ernAmount: ", ernAmount);
@@ -839,7 +839,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         vm.startPrank(usdcOracleOwner);
         IAggregatorAdmin aggregator = IAggregatorAdmin(chainlinkUsdcOracle);
         uint256 usdcPrice = 10 ** 8;
-        
+
         MockAggregator mockChainlink = new MockAggregator();
         mockChainlink.setPrevRoundId(2);
         mockChainlink.setLatestRoundId(3);
@@ -907,7 +907,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         console.log("priceQuote8: ", priceQuote8 / 10_000_000);
         console.log("priceQuote9: ", priceQuote9 / 100_000_000);
         console.log("priceQuote10: ", priceQuote10 / 1_000_000_000);
-    }   
+    }
 
     function liquidateTroves(address asset) internal {
         ITroveManager(troveManager).liquidateTroves(asset, 100);
