@@ -290,22 +290,28 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
      * the Velodrome USDC-ERN TWAP and collateral+USDC value discounted slightly.
      */
     function balanceOfPool() public view returns (uint256) {
-        uint256 depositedErn = stabilityPool.getCompoundedLUSDDeposit(address(this));
         uint256 ernCollateralValue = getERNValueOfCollateralGain();
-        uint256 adjustedCollateralValue = ernCollateralValue * compoundingFeeMarginBPS / PERCENT_DIVISOR;
-
-        return depositedErn + adjustedCollateralValue;
+        return balanceOfPoolCommon(ernCollateralValue);
     }
 
     /**
      * @dev Estimates the amount of ERN held in the stability pool and any
      * balance of collateral or USDC. The values are converted using oracles and
      * the Velodrome USDC-ERN TWAP and collateral+USDC value discounted slightly.
+     * Uses the Ethos price feed so backup oracles are used if chainlink fails.
+     * Will likely not revert so can be used in harvest even if Chainlink is down.
      */
     function balanceOfPoolUsingPriceFeed() public returns (uint256) {
-        uint256 depositedErn = stabilityPool.getCompoundedLUSDDeposit(address(this));
         uint256 ernCollateralValue = getERNValueOfCollateralGainUsingPriceFeed();
-        uint256 adjustedCollateralValue = ernCollateralValue * compoundingFeeMarginBPS / PERCENT_DIVISOR;
+        return balanceOfPoolCommon(ernCollateralValue);
+    }
+
+    /**
+     * @dev Shared logic for balanceOfPool functions
+     */
+    function balanceOfPoolCommon(uint256 _ernCollateralValue) public view returns (uint256) {
+        uint256 depositedErn = stabilityPool.getCompoundedLUSDDeposit(address(this));
+        uint256 adjustedCollateralValue = _ernCollateralValue * compoundingFeeMarginBPS / PERCENT_DIVISOR;
 
         return depositedErn + adjustedCollateralValue;
     }
@@ -316,19 +322,23 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
      */
     function getERNValueOfCollateralGain() public view returns (uint256 ernValueOfCollateral) {
         uint256 usdValueOfCollateralGain = getUSDValueOfCollateralGain();
-        uint256 usdcValueOfCollateral = _getUsdcEquivalentOfUSD(usdValueOfCollateralGain);
-        uint256 usdcBalance = usdc.balanceOf(address(this));
-        uint256 totalUsdcValue = usdcBalance + usdcValueOfCollateral;
-        ernValueOfCollateral = veloUsdcErnPool.quote(address(usdc), totalUsdcValue, veloUsdcErnQuoteGranularity);
+        ernValueOfCollateral = getERNValueOfCollateralGainCommon(usdValueOfCollateralGain);
     }
 
     /**
-     * @dev Calculates the estimated ERN value of collateral and USDC using the Ethos price feed
+     * @dev Calculates the estimated ERN value of collateral using the Ethos price feed, Chainlink oracle for USDC 
      * and the Velodrome USDC-ERN TWAP.
      */
     function getERNValueOfCollateralGainUsingPriceFeed() public returns (uint256 ernValueOfCollateral) {
         uint256 usdValueOfCollateralGain = getUSDValueOfCollateralGainUsingPriceFeed();
-        uint256 usdcValueOfCollateral = _getUsdcEquivalentOfUSD(usdValueOfCollateralGain);
+        ernValueOfCollateral = getERNValueOfCollateralGainCommon(usdValueOfCollateralGain);
+    }
+
+    /**
+     * @dev Shared logic for getERNValueOfCollateralGain functions.
+     */
+    function getERNValueOfCollateralGainCommon(uint256 _usdValueOfCollateralGain) public view returns (uint256 ernValueOfCollateral) {
+        uint256 usdcValueOfCollateral = _getUsdcEquivalentOfUSD(_usdValueOfCollateralGain);
         uint256 usdcBalance = usdc.balanceOf(address(this));
         uint256 totalUsdcValue = usdcBalance + usdcValueOfCollateral;
         ernValueOfCollateral = veloUsdcErnPool.quote(address(usdc), totalUsdcValue, veloUsdcErnQuoteGranularity);
@@ -365,10 +375,8 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
      * The precision of {_amount} is whatever {_collateral}'s native decimals are (ex. 8 for wBTC)
      */
     function _getUSDEquivalentOfCollateral(address _collateral, uint256 _amount) internal view returns (uint256) {
-        uint256 scaledAmount = _scaleToEthosDecimals(_amount, IERC20MetadataUpgradeable(_collateral).decimals());
         uint256 price = _getCollateralPrice(_collateral);
-        uint256 USDAssetValue = (scaledAmount * price) / (10 ** _getCollateralPriceDecimals(_collateral));
-        return USDAssetValue;
+        return _getUSDEquivalentOfCollateralCommon(_collateral, _amount, price, _getCollateralPriceDecimals(_collateral));
     }
 
     /**
@@ -378,9 +386,16 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
      * However it is not view so can only be used in none-view functions
      */
     function _getUSDEquivalentOfCollateralUsingPriceFeed(address _collateral, uint256 _amount) internal returns (uint256) {
-        uint256 scaledAmount = _scaleToEthosDecimals(_amount, IERC20MetadataUpgradeable(_collateral).decimals());
         uint256 price = priceFeed.fetchPrice(_collateral);
-        uint256 USDAssetValue = (scaledAmount * price) / (10 ** ETHOS_DECIMALS);
+        return _getUSDEquivalentOfCollateralCommon(_collateral, _amount, price, ETHOS_DECIMALS);
+    }
+
+    /**
+     * @dev Shared logic for getUSDEquivalentOfCollateral functions
+     */
+    function _getUSDEquivalentOfCollateralCommon(address _collateral, uint256 _amount, uint256 _price, uint256 _priceDecimals) internal view returns (uint256) {
+        uint256 scaledAmount = _scaleToEthosDecimals(_amount, IERC20MetadataUpgradeable(_collateral).decimals());
+        uint256 USDAssetValue = (scaledAmount * _price) / (10 ** _priceDecimals);
         return USDAssetValue;
     }
 
