@@ -16,8 +16,6 @@ import {IERC20MetadataUpgradeable} from "oz-upgradeable/token/ERC20/extensions/I
 import {SafeERC20Upgradeable} from "oz-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 import {MathUpgradeable} from "oz-upgradeable/utils/math/MathUpgradeable.sol";
 
-import "forge-std/console.sol";
-
 /**
  * @dev Strategy to compound rewards and liquidation collateral gains in the Ethos stability pool
  */
