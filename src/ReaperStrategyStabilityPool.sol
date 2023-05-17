@@ -16,6 +16,8 @@ import {IERC20MetadataUpgradeable} from "oz-upgradeable/token/ERC20/extensions/I
 import {SafeERC20Upgradeable} from "oz-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 import {MathUpgradeable} from "oz-upgradeable/utils/math/MathUpgradeable.sol";
 
+import "forge-std/console.sol";
+
 /**
  * @dev Strategy to compound rewards and liquidation collateral gains in the Ethos stability pool
  */
@@ -377,14 +379,17 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
 
     /**
      * @dev Returns the price of {_collateral} in USD in whatever decimals the aggregator uses (usually 8)
+     * It is meant to revert on failure if the latestRoundData call fails
      */
     function _getCollateralPrice(address _collateral) internal view returns (uint256 price) {
         AggregatorV3Interface aggregator = AggregatorV3Interface(priceFeed.priceAggregator(_collateral));
-        price = uint256(aggregator.latestAnswer());
+        (,int256 answer,,,) = aggregator.latestRoundData();
+        price = uint256(answer);
     }
 
     /**
      * @dev Returns the decimals the aggregator uses for {_collateral} (usually 8)
+     * It is meant to revert on failure if the decimals call fails
      */
     function _getCollateralPriceDecimals(address _collateral) internal view returns (uint256 decimals) {
         AggregatorV3Interface aggregator = AggregatorV3Interface(priceFeed.priceAggregator(_collateral));
