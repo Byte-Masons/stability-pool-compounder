@@ -8,6 +8,7 @@ import {IPriceFeed} from "./interfaces/IPriceFeed.sol";
 import {IVault} from "vault-v2/interfaces/IVault.sol";
 import {ICollateralConfig} from "./interfaces/ICollateralConfig.sol";
 import {AggregatorV3Interface} from "./interfaces/AggregatorV3Interface.sol";
+import {IVelodromePair} from "./interfaces/IVelodromePair.sol";
 import {VeloSolidMixin} from "mixins/VeloSolidMixin.sol";
 import {UniV3Mixin} from "mixins/UniV3Mixin.sol";
 import {BalMixin} from "mixins/BalMixin.sol";
@@ -16,7 +17,7 @@ import {SafeERC20Upgradeable} from "oz-upgradeable/token/ERC20/utils/SafeERC20Up
 import {MathUpgradeable} from "oz-upgradeable/utils/math/MathUpgradeable.sol";
 
 /**
- * @dev Strategy to _compound rewards and liquidation collateral gains in the Ethos stability pool
+ * @dev Strategy to compound rewards and liquidation collateral gains in the Ethos stability pool
  */
 contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, UniV3Mixin, BalMixin {
     using SafeERC20Upgradeable for IERC20MetadataUpgradeable;
@@ -26,15 +27,15 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     IPriceFeed public priceFeed;
     IERC20MetadataUpgradeable public oath;
     IERC20MetadataUpgradeable public usdc;
-    address public veloRouter;
-    address public balVault;
-    address public uniV3Router;
-    address public uniV3Quoter;
+    ExchangeSettings public exchangeSettings; // Holds addresses needed to use Velo, UniV3 and Bal mixins
+    AggregatorV3Interface public chainlinkUsdcOracle;
+    IVelodromePair public veloUsdcErnPool;
 
-    uint256 public constant ETHOS_PRICE_PRECISION = 1 ether;
-    uint256 public constant ETHOS_DECIMALS = 18;
-    uint256 public minAmountOutBPS;
-    uint256 public ernMinAmountOutBPS;
+    uint256 public constant ETHOS_DECIMALS = 18; // Decimals used by ETHOS
+    uint256 public usdcMinAmountOutBPS; // The max allowed slippage when trading in to USDC
+    uint256 public ernMinAmountOutBPS; // The max allowed slippage when trading in to ERN
+    uint256 public compoundingFeeMarginBPS; // How much collateral value is lowered to account for the costs of swapping
+    uint256 public veloUsdcErnQuoteGranularity; // How many samples to look at for Velo pool TWAP
 
     enum Exchange {
         Velodrome,
@@ -42,13 +43,24 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         UniV3
     }
 
-    Exchange public usdcToErnExchange;
+    Exchange public usdcToErnExchange; // Controls which exchange is used to swap USDC to ERN
 
     struct ExchangeSettings {
         address veloRouter;
         address balVault;
         address uniV3Router;
         address uniV3Quoter;
+    }
+
+    struct Pools {
+        address stabilityPool;
+        address veloUsdcErnPool;
+    }
+
+    struct Tokens {
+        address want;
+        address oath;
+        address usdc;
     }
 
     /**
@@ -60,46 +72,48 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         address[] memory _strategists,
         address[] memory _multisigRoles,
         address[] memory _keepers,
-        address _want,
-        address _stabilityPool,
         address _priceFeed,
-        address _oath,
-        address _usdc,
         bytes32 _balErnPoolID,
-        ExchangeSettings calldata _exchangeSettings
+        address _chainlinkUsdcOracle,
+        ExchangeSettings calldata _exchangeSettings,
+        Pools calldata _pools,
+        address[] calldata _usdcErnPath,
+        Tokens calldata _tokens
     ) public initializer {
         require(_vault != address(0), "vault is 0 address");
-        require(_want != address(0), "want is 0 address");
-        require(_stabilityPool != address(0), "stabilityPool is 0 address");
+        require(_strategists.length != 0, "no strategists");
+        require(_multisigRoles.length == 3, "invalid amount of multisig roles");
+        require(_tokens.want != address(0), "want is 0 address");
         require(_priceFeed != address(0), "priceFeed is 0 address");
-        require(_oath != address(0), "oath is 0 address");
-        require(_usdc != address(0), "usdc is 0 address");
+        require(_tokens.oath != address(0), "oath is 0 address");
+        require(_tokens.usdc != address(0), "usdc is 0 address");
+        require(_chainlinkUsdcOracle != address(0), "chainlinkUsdcOracle is 0 address");
         require(_exchangeSettings.veloRouter != address(0), "veloRouter is 0 address");
         require(_exchangeSettings.balVault != address(0), "balVault is 0 address");
         require(_exchangeSettings.uniV3Router != address(0), "uniV3Router is 0 address");
         require(_exchangeSettings.uniV3Quoter != address(0), "uniV3Quoter is 0 address");
-        require(_strategists.length != 0, "no strategists");
-        require(_multisigRoles.length == 3, "invalid amount of multisig roles");
-        __ReaperBaseStrategy_init(_vault, _want, _strategists, _multisigRoles, _keepers);
-        stabilityPool = IStabilityPool(_stabilityPool);
-        priceFeed = IPriceFeed(_priceFeed);
-        oath = IERC20MetadataUpgradeable(_oath);
-        usdc = IERC20MetadataUpgradeable(_usdc);
-        veloRouter = _exchangeSettings.veloRouter;
-        balVault = _exchangeSettings.balVault;
-        uniV3Router = _exchangeSettings.uniV3Router;
-        uniV3Quoter = _exchangeSettings.uniV3Quoter;
+        require(_pools.stabilityPool != address(0), "stabilityPool is 0 address");
+        require(_pools.veloUsdcErnPool != address(0), "veloUsdcErnPool is 0 address");
 
-        minAmountOutBPS = 9900;
-        ernMinAmountOutBPS = 9200;
+        __ReaperBaseStrategy_init(_vault, _tokens.want, _strategists, _multisigRoles, _keepers);
+        stabilityPool = IStabilityPool(_pools.stabilityPool);
+        priceFeed = IPriceFeed(_priceFeed);
+        oath = IERC20MetadataUpgradeable(_tokens.oath);
+        usdc = IERC20MetadataUpgradeable(_tokens.usdc);
+        exchangeSettings = _exchangeSettings;
+
+        usdcMinAmountOutBPS = 9800;
+        ernMinAmountOutBPS = 9800;
         usdcToErnExchange = Exchange.Velodrome;
 
-        address[] memory usdcErnPath = new address[](2);
-        usdcErnPath[0] = _usdc;
-        usdcErnPath[1] = _want;
-        veloSwapPaths[_usdc][_want] = usdcErnPath;
-        uniV3SwapPaths[_usdc][_want] = usdcErnPath;
-        balSwapPoolIDs[_usdc][_want] = _balErnPoolID;
+        _updateVeloSwapPath(_tokens.usdc, _tokens.want, _usdcErnPath);
+        _updateUniV3SwapPath(_tokens.usdc, _tokens.want, _usdcErnPath);
+        _updateBalSwapPoolID(_tokens.usdc, _tokens.want, _balErnPoolID);
+
+        chainlinkUsdcOracle = AggregatorV3Interface(_chainlinkUsdcOracle);
+        veloUsdcErnPool = IVelodromePair(_pools.veloUsdcErnPool);
+        veloUsdcErnQuoteGranularity = 2;
+        compoundingFeeMarginBPS = 9950;
     }
 
     function _adjustPosition(uint256 _debt) internal override {
@@ -138,16 +152,12 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         return balanceOfWant();
     }
 
-    /**
-     * @dev Core function of the strat, in charge of collecting and swapping rewards + collateral
-     *      to produce more want.
-     */
     function _harvestCore(uint256 _debt) internal override returns (int256 roi, uint256 repayment) {
         _claimRewards();
         _compound();
 
         uint256 allocated = IVault(vault).strategies(address(this)).allocated;
-        uint256 totalAssets = balanceOf();
+        uint256 totalAssets = balanceOfUsingPriceFeed();
         uint256 toFree = MathUpgradeable.min(_debt, totalAssets);
 
         if (totalAssets > allocated) {
@@ -163,6 +173,13 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         roi -= int256(loss);
     }
 
+    /**
+     * @dev Takes collateral earned from liquidations (could be WBTC, WETH, OP) and compounds it.
+     * Will also take Oath incentive rewards and compound. The collateral will be priced by Ethos
+     * Chainlink oracles for slippage control. USDC as an intermediary is priced using a separate
+     * oracle. Oath is not priced so any slippage is allowed.
+     * ERN is priced using the built in Velodrome TWAP.
+     */
     function _compound() internal {
         ICollateralConfig collateralConfig = stabilityPool.collateralConfig();
         address[] memory assets = collateralConfig.getAllowedCollaterals();
@@ -172,37 +189,51 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
 
             uint256 collateralBalance = IERC20MetadataUpgradeable(asset).balanceOf(address(this));
             if (collateralBalance != 0) {
-                uint256 assetValue = _getUSDEquivalentOfCollateral(asset, collateralBalance);
-                uint256 minAmountOut = (assetValue * minAmountOutBPS) / PERCENT_DIVISOR;
-                uint256 scaledMinAmountOut = _getScaledToCollAmount(minAmountOut, usdc.decimals());
-                _swapUniV3(asset, address(usdc), collateralBalance, scaledMinAmountOut, uniV3Router, uniV3Quoter);
+                uint256 assetValue = _getUSDEquivalentOfCollateralUsingPriceFeed(asset, collateralBalance);
+                uint256 assetValueUsdc = assetValue * (10 ** _getUsdcPriceDecimals()) / _getUsdcPrice();
+                uint256 minAmountOut = (assetValueUsdc * usdcMinAmountOutBPS) / PERCENT_DIVISOR;
+                uint256 scaledMinAmountOut = _scaleToCollateralDecimals(minAmountOut, usdc.decimals());
+                _swapUniV3(
+                    asset,
+                    address(usdc),
+                    collateralBalance,
+                    scaledMinAmountOut,
+                    exchangeSettings.uniV3Router,
+                    exchangeSettings.uniV3Quoter
+                );
             }
         }
 
         uint256 oathBalance = oath.balanceOf(address(this));
         if (oathBalance != 0) {
-            _swapVelo(address(oath), address(usdc), oathBalance, 0, veloRouter);
+            _swapVelo(address(oath), address(usdc), oathBalance, 0, exchangeSettings.veloRouter);
         }
 
         uint256 usdcBalance = usdc.balanceOf(address(this));
         if (usdcBalance != 0) {
-            // assumes 1 ERN = 1 USDC
-            uint256 scaledUsdcBalance = _getScaledFromCollAmount(usdcBalance, usdc.decimals());
-            uint256 minAmountOut = (scaledUsdcBalance * ernMinAmountOutBPS) / PERCENT_DIVISOR;
+            uint256 expectedErnAmount = veloUsdcErnPool.quote(address(usdc), usdcBalance, veloUsdcErnQuoteGranularity);
+            uint256 minAmountOut = (expectedErnAmount * ernMinAmountOutBPS) / PERCENT_DIVISOR;
             if (usdcToErnExchange == Exchange.Beethoven) {
                 _swapBal(address(usdc), want, usdcBalance, minAmountOut);
             } else if (usdcToErnExchange == Exchange.Velodrome) {
-                _swapVelo(address(usdc), want, usdcBalance, minAmountOut, veloRouter);
+                _swapVelo(address(usdc), want, usdcBalance, minAmountOut, exchangeSettings.veloRouter);
             } else if (usdcToErnExchange == Exchange.UniV3) {
-                _swapUniV3(address(usdc), want, usdcBalance, minAmountOut, uniV3Router, uniV3Quoter);
+                _swapUniV3(
+                    address(usdc),
+                    want,
+                    usdcBalance,
+                    minAmountOut,
+                    exchangeSettings.uniV3Router,
+                    exchangeSettings.uniV3Quoter
+                );
             }
         }
     }
 
     /**
      * @dev Function that puts the funds to work.
-     * It gets called whenever someone deposits in the strategy's vault contract.
-     * !audit we increase the allowance in the balance amount but we deposit the amount specified
+     * It gets called whenever someone deposits in the strategy's vault contract
+     * or when funds are reinvested in to the strategy.
      */
     function _deposit(uint256 toReinvest) internal {
         if (toReinvest != 0) {
@@ -220,7 +251,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     }
 
     /**
-     * @dev Claim rewards for supply and borrow
+     * @dev Claim rewards
      */
     function _claimRewards() internal {
         _withdraw(0);
@@ -229,61 +260,231 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     /**
      * @dev Function to calculate the total {want} held by the strat.
      * It takes into account both the funds in hand, the funds in the stability pool,
-     * and also balance of collateral tokens.
+     * and also the balance of collateral tokens + USDC.
      */
     function balanceOf() public view override returns (uint256) {
         return balanceOfPool() + balanceOfWant();
     }
 
+    /**
+     * @dev Function to calculate the total {want} held by the strat.
+     * It takes into account both the funds in hand, the funds in the stability pool,
+     * and also the balance of collateral tokens + USDC.
+     */
+    function balanceOfUsingPriceFeed() public returns (uint256) {
+        return balanceOfPoolUsingPriceFeed() + balanceOfWant();
+    }
+
+    /**
+     * @dev The want balance directly held in the strategy itself.
+     */
     function balanceOfWant() public view returns (uint256) {
         return IERC20MetadataUpgradeable(want).balanceOf(address(this));
     }
 
+    /**
+     * @dev Estimates the amount of ERN held in the stability pool and any
+     * balance of collateral or USDC. The values are converted using oracles and
+     * the Velodrome USDC-ERN TWAP and collateral+USDC value discounted slightly.
+     */
     function balanceOfPool() public view returns (uint256) {
-        uint256 lusdValue = stabilityPool.getCompoundedLUSDDeposit(address(this));
-        uint256 collateralValue = getCollateralGain();
-        // assumes 1 ERN = 1 USD
-        return lusdValue + collateralValue;
+        uint256 ernCollateralValue = getERNValueOfCollateralGain();
+        return balanceOfPoolCommon(ernCollateralValue);
     }
 
-    function getCollateralGain() public view returns (uint256 collateralGain) {
-        (address[] memory assets, uint256[] memory amounts) = stabilityPool.getDepositorCollateralGain(address(this));
+    /**
+     * @dev Estimates the amount of ERN held in the stability pool and any
+     * balance of collateral or USDC. The values are converted using oracles and
+     * the Velodrome USDC-ERN TWAP and collateral+USDC value discounted slightly.
+     * Uses the Ethos price feed so backup oracles are used if chainlink fails.
+     * Will likely not revert so can be used in harvest even if Chainlink is down.
+     */
+    function balanceOfPoolUsingPriceFeed() public returns (uint256) {
+        uint256 ernCollateralValue = getERNValueOfCollateralGainUsingPriceFeed();
+        return balanceOfPoolCommon(ernCollateralValue);
+    }
 
+    /**
+     * @dev Shared logic for balanceOfPool functions
+     */
+    function balanceOfPoolCommon(uint256 _ernCollateralValue) public view returns (uint256) {
+        uint256 depositedErn = stabilityPool.getCompoundedLUSDDeposit(address(this));
+        uint256 adjustedCollateralValue = _ernCollateralValue * compoundingFeeMarginBPS / PERCENT_DIVISOR;
+
+        return depositedErn + adjustedCollateralValue;
+    }
+
+    /**
+     * @dev Calculates the estimated ERN value of collateral and USDC using Chainlink oracles
+     * and the Velodrome USDC-ERN TWAP.
+     */
+    function getERNValueOfCollateralGain() public view returns (uint256 ernValueOfCollateral) {
+        uint256 usdValueOfCollateralGain = getUSDValueOfCollateralGain();
+        ernValueOfCollateral = getERNValueOfCollateralGainCommon(usdValueOfCollateralGain);
+    }
+
+    /**
+     * @dev Calculates the estimated ERN value of collateral using the Ethos price feed, Chainlink oracle for USDC
+     * and the Velodrome USDC-ERN TWAP.
+     */
+    function getERNValueOfCollateralGainUsingPriceFeed() public returns (uint256 ernValueOfCollateral) {
+        uint256 usdValueOfCollateralGain = getUSDValueOfCollateralGainUsingPriceFeed();
+        ernValueOfCollateral = getERNValueOfCollateralGainCommon(usdValueOfCollateralGain);
+    }
+
+    /**
+     * @dev Shared logic for getERNValueOfCollateralGain functions.
+     */
+    function getERNValueOfCollateralGainCommon(uint256 _usdValueOfCollateralGain)
+        public
+        view
+        returns (uint256 ernValueOfCollateral)
+    {
+        uint256 usdcValueOfCollateral = _getUsdcEquivalentOfUSD(_usdValueOfCollateralGain);
+        uint256 usdcBalance = usdc.balanceOf(address(this));
+        uint256 totalUsdcValue = usdcBalance + usdcValueOfCollateral;
+        ernValueOfCollateral = veloUsdcErnPool.quote(address(usdc), totalUsdcValue, veloUsdcErnQuoteGranularity);
+    }
+
+    /**
+     * @dev Calculates the estimated USD value of collateral gains using Chainlink oracles
+     * {usdValueOfCollateralGain} is the USD value of all collateral in 18 decimals
+     */
+    function getUSDValueOfCollateralGain() public view returns (uint256 usdValueOfCollateralGain) {
+        (address[] memory assets, uint256[] memory amounts) = stabilityPool.getDepositorCollateralGain(address(this));
         for (uint256 i = 0; i < assets.length; i++) {
             address asset = assets[i];
             uint256 amount = amounts[i] + IERC20MetadataUpgradeable(asset).balanceOf(address(this));
-            collateralGain += _getUSDEquivalentOfCollateral(asset, amount);
+            usdValueOfCollateralGain += _getUSDEquivalentOfCollateral(asset, amount);
         }
     }
 
-    // Returns USD equivalent of {_amount} of {_collateral} with 18 digits of decimal precision.
-    // The precision of {_amount} is whatever {_collateral}'s native decimals are (ex. 8 for wBTC)
+    /**
+     * @dev Calculates the estimated USD value of collateral gains using the Ethos price feed
+     * {usdValueOfCollateralGain} is the USD value of all collateral in 18 decimals
+     */
+    function getUSDValueOfCollateralGainUsingPriceFeed() public returns (uint256 usdValueOfCollateralGain) {
+        (address[] memory assets, uint256[] memory amounts) = stabilityPool.getDepositorCollateralGain(address(this));
+        for (uint256 i = 0; i < assets.length; i++) {
+            address asset = assets[i];
+            uint256 amount = amounts[i] + IERC20MetadataUpgradeable(asset).balanceOf(address(this));
+            usdValueOfCollateralGain += _getUSDEquivalentOfCollateralUsingPriceFeed(asset, amount);
+        }
+    }
+
+    /**
+     * @dev Returns USD equivalent of {_amount} of {_collateral} with 18 digits of decimal precision.
+     * The precision of {_amount} is whatever {_collateral}'s native decimals are (ex. 8 for wBTC)
+     */
     function _getUSDEquivalentOfCollateral(address _collateral, uint256 _amount) internal view returns (uint256) {
-        uint256 scaledAmount = _getScaledFromCollAmount(_amount, IERC20MetadataUpgradeable(_collateral).decimals());
         uint256 price = _getCollateralPrice(_collateral);
-        uint256 USDAssetValue = (scaledAmount * price) / (10 ** _getCollateralDecimals(_collateral));
+        return
+            _getUSDEquivalentOfCollateralCommon(_collateral, _amount, price, _getCollateralPriceDecimals(_collateral));
+    }
+
+    /**
+     * @dev Returns USD equivalent of {_amount} of {_collateral} with 18 digits of decimal precision.
+     * The precision of {_amount} is whatever {_collateral}'s native decimals are (ex. 8 for wBTC)
+     * This uses the price feed directly which has a Tellor backup oracle should Chainlink fail.
+     * However it is not view so can only be used in none-view functions
+     */
+    function _getUSDEquivalentOfCollateralUsingPriceFeed(address _collateral, uint256 _amount)
+        internal
+        returns (uint256)
+    {
+        uint256 price = priceFeed.fetchPrice(_collateral);
+        return _getUSDEquivalentOfCollateralCommon(_collateral, _amount, price, ETHOS_DECIMALS);
+    }
+
+    /**
+     * @dev Shared logic for getUSDEquivalentOfCollateral functions
+     */
+    function _getUSDEquivalentOfCollateralCommon(
+        address _collateral,
+        uint256 _amount,
+        uint256 _price,
+        uint256 _priceDecimals
+    ) internal view returns (uint256) {
+        uint256 scaledAmount = _scaleToEthosDecimals(_amount, IERC20MetadataUpgradeable(_collateral).decimals());
+        uint256 USDAssetValue = (scaledAmount * _price) / (10 ** _priceDecimals);
         return USDAssetValue;
     }
 
-    function _balVault() internal view override returns (address) {
-        return balVault;
+    /**
+     * @dev Returns Usdc equivalent of {_amount} of USD with 6 digits of decimal precision.
+     * The precision of {_amount} is 18 decimals
+     */
+    function _getUsdcEquivalentOfUSD(uint256 _amount) internal view returns (uint256) {
+        uint256 scaledAmount = _scaleToCollateralDecimals(_amount, usdc.decimals());
+        uint256 price = _getUsdcPrice();
+        uint256 usdcAmount = (scaledAmount * (10 ** _getUsdcPriceDecimals())) / price;
+        return usdcAmount;
     }
 
+    /**
+     * @dev Returns the address of the Balancer/BeetX vault used by the Balancer mixin
+     */
+    function _balVault() internal view override returns (address) {
+        return exchangeSettings.balVault;
+    }
+
+    /**
+     * @dev Check to ensure an initial deposit has been made in the stability pool
+     * Which is a requirement to call withdraw.
+     */
     function _hasInitialDeposit(address _user) internal view returns (bool) {
         return stabilityPool.deposits(_user).initialValue != 0;
     }
 
-    function _getCollateralPrice(address _collateral) internal view returns (uint256 price) {
-        AggregatorV3Interface aggregator = AggregatorV3Interface(priceFeed.priceAggregator(_collateral));
-        price = uint256(aggregator.latestAnswer());
+    /**
+     * @dev Returns the price of USDC in USD in whatever decimals the aggregator uses (usually 8)
+     */
+    function _getUsdcPrice() internal view returns (uint256 price) {
+        AggregatorV3Interface aggregator = AggregatorV3Interface(chainlinkUsdcOracle);
+
+        try aggregator.latestRoundData() returns (uint80, int256 answer, uint256, uint256, uint80) {
+            price = uint256(answer);
+        } catch {
+            price = 10 ** _getUsdcPriceDecimals(); // default to 1$
+        }
     }
 
-    function _getCollateralDecimals(address _collateral) internal view returns (uint256 decimals) {
+    /**
+     * @dev Returns the decimals the aggregator uses for USDC (usually 8)
+     */
+    function _getUsdcPriceDecimals() internal view returns (uint256) {
+        AggregatorV3Interface aggregator = AggregatorV3Interface(chainlinkUsdcOracle);
+
+        try aggregator.decimals() returns (uint8 decimals) {
+            return decimals;
+        } catch {
+            return 8;
+        }
+    }
+
+    /**
+     * @dev Returns the price of {_collateral} in USD in whatever decimals the aggregator uses (usually 8)
+     * It is meant to revert on failure if the latestRoundData call fails
+     */
+    function _getCollateralPrice(address _collateral) internal view returns (uint256 price) {
+        AggregatorV3Interface aggregator = AggregatorV3Interface(priceFeed.priceAggregator(_collateral));
+        (, int256 answer,,,) = aggregator.latestRoundData();
+        price = uint256(answer);
+    }
+
+    /**
+     * @dev Returns the decimals the aggregator uses for {_collateral} (usually 8)
+     * It is meant to revert on failure if the decimals call fails
+     */
+    function _getCollateralPriceDecimals(address _collateral) internal view returns (uint256 decimals) {
         AggregatorV3Interface aggregator = AggregatorV3Interface(priceFeed.priceAggregator(_collateral));
         decimals = uint256(aggregator.decimals());
     }
 
-    function _getScaledFromCollAmount(uint256 _collAmount, uint256 _collDecimals)
+    /**
+     * @dev Scales {_collAmount} given in {_collDecimals} to an 18 decimal amount (used by Ethos)
+     */
+    function _scaleToEthosDecimals(uint256 _collAmount, uint256 _collDecimals)
         internal
         pure
         returns (uint256 scaledColl)
@@ -296,7 +497,10 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         }
     }
 
-    function _getScaledToCollAmount(uint256 _collAmount, uint256 _collDecimals)
+    /**
+     * @dev Scales {_collAmount} given in 18 decimals to an amount in {_collDecimals}
+     */
+    function _scaleToCollateralDecimals(uint256 _collAmount, uint256 _collDecimals)
         internal
         pure
         returns (uint256 scaledColl)
@@ -309,35 +513,87 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         }
     }
 
+    /**
+     * @dev Updates the Velodrome swap path to go from {_tokenIn} to {_tokenOut}
+     */
     function updateVeloSwapPath(address _tokenIn, address _tokenOut, address[] calldata _path) external override {
         _atLeastRole(STRATEGIST);
         _updateVeloSwapPath(_tokenIn, _tokenOut, _path);
     }
 
+    /**
+     * @dev Updates the UniV3 swap path to go from {_tokenIn} to {_tokenOut}
+     */
     function updateUniV3SwapPath(address _tokenIn, address _tokenOut, address[] calldata _path) external override {
         _atLeastRole(STRATEGIST);
         _updateUniV3SwapPath(_tokenIn, _tokenOut, _path);
     }
 
+    /**
+     * @dev Updates the Balancer/BeetX pool used to go from {_tokenIn} to {_tokenOut}
+     */
     function updateBalSwapPoolID(address _tokenIn, address _tokenOut, bytes32 _poolID) external override {
         _atLeastRole(STRATEGIST);
         _updateBalSwapPoolID(_tokenIn, _tokenOut, _poolID);
     }
 
-    function updateMinAmountOutBPS(uint256 _minAmountOutBPS) external {
+    /**
+     * @dev Updates the {usdcMinAmountOutBPS} which is the minimum amount accepted in a collateral to USDC swap
+     * In BPS so 9500 would allow a 5% slippage.
+     */
+    function updateUsdcMinAmountOutBPS(uint256 _usdcMinAmountOutBPS) external {
         _atLeastRole(STRATEGIST);
-        require(_minAmountOutBPS > 8000 && _minAmountOutBPS < PERCENT_DIVISOR, "Invalid slippage value");
-        minAmountOutBPS = _minAmountOutBPS;
+        require(_usdcMinAmountOutBPS > 8000 && _usdcMinAmountOutBPS < PERCENT_DIVISOR, "Invalid slippage value");
+        usdcMinAmountOutBPS = _usdcMinAmountOutBPS;
     }
 
+    /**
+     * @dev Updates the {ernMinAmountOutBPS} which is the minimum amount accepted in a USDC->ERN/want swap.
+     * In BPS so 9500 would allow a 5% slippage.
+     */
     function updateErnMinAmountOutBPS(uint256 _ernMinAmountOutBPS) external {
         _atLeastRole(STRATEGIST);
         require(_ernMinAmountOutBPS > 8000 && _ernMinAmountOutBPS < PERCENT_DIVISOR, "Invalid slippage value");
         ernMinAmountOutBPS = _ernMinAmountOutBPS;
     }
 
+    /**
+     * @dev Sets the exchange used to swap USDC to ERN/want (can be Velo, UniV3, Balancer)
+     */
     function setUsdcToErnExchange(Exchange _exchange) external {
         _atLeastRole(STRATEGIST);
         usdcToErnExchange = _exchange;
+    }
+
+    /**
+     * @dev The pool fees used to swap using UniV3
+     */
+    function _getFeeCandidates() internal override returns (uint24[] memory) {
+        uint24[] memory feeCandidates = new uint24[](2);
+        feeCandidates[0] = 500;
+        feeCandidates[1] = 3_000;
+        return feeCandidates;
+    }
+
+    /**
+     * @dev Updates the granularity used to check Velodrome TWAP (larger value looks at more samples/longer time)
+     */
+    function updateVeloUsdcErnQuoteGranularity(uint256 _veloUsdcErnQuoteGranularity) external {
+        _atLeastRole(STRATEGIST);
+        require(_veloUsdcErnQuoteGranularity >= 2 && _veloUsdcErnQuoteGranularity <= 10, "Invalid granularity value");
+        veloUsdcErnQuoteGranularity = _veloUsdcErnQuoteGranularity;
+    }
+
+    /**
+     * @dev Updates the value used to adjust the value of collateral down slightly (between 0-2%)
+     * To account for swap fees and slippage to go from collateral to want
+     */
+    function updateCompoundingFeeMarginBPS(uint256 _compoundingFeeMarginBPS) external {
+        _atLeastRole(GUARDIAN);
+        require(
+            _compoundingFeeMarginBPS > 9800 && _compoundingFeeMarginBPS <= PERCENT_DIVISOR,
+            "Invalid compoundingFeeMarginBPS value"
+        );
+        compoundingFeeMarginBPS = _compoundingFeeMarginBPS;
     }
 }

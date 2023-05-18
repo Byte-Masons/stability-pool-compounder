@@ -36,19 +36,25 @@ async function main() {
   ];
 
   const want = "0xc5b001DC33727F8F26880B184090D3E252470D45";
-  const stabilityPoolAddress = "0x8B147A2d4Fc3598079C64b8BF9Ad2f776786CFed";
+  
   const priceFeedAddress = "0xC6b3Eea38Cbe0123202650fB49c59ec41a406427";
   const oath = "0x39FdE572a18448F8139b7788099F0a0740f51205";
   const usdc = "0x7F5c764cBc14f9669B88837ca1490cCa17c31607";
+  const balErnPoolId = "0x1d95129c18a8c91c464111fdf7d0eb241b37a9850002000000000000000000c1";
+  const chainlinkUsdcOracle = "0x16a9FA2FDa030272Ce99B29CF780dFA30361E0f3";
+
   const exchangeSettings = {
     balVault: "0xBA12222222228d8Ba445958a75a0704d566BF2C8",
     uniV3Router: "0xE592427A0AEce92De3Edee1F18E0157C05861564",
     uniV3Quoter: "0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6",
+    veloRouter: "0x9c12939390052919aF3155f41Bf4160Fd3666A6f",
   };
-  const aaveContracts = {
-    addressProvider: "0xdDE5dC81e40799750B92079723Da2acAF9e1C6D6",
-    dataProvider: "0x9546F673eF71Ff666ae66d01Fd6E7C6Dae5a9995",
-    rewarder: "0x6A0406B8103Ec68EE9A713A073C7bD587c5e04aD",
+
+  const stabilityPool = "0x8B147A2d4Fc3598079C64b8BF9Ad2f776786CFed";
+  const veloUsdcErnPool = "0x55624DC97289A19045b4739627BEaEB1E70Ab64c";
+  const pools = {
+    stabilityPool,
+    veloUsdcErnPool,
   };
 
   const strategy = await upgrades.deployProxy(
@@ -59,12 +65,13 @@ async function main() {
       multisigRoles,
       keepers,
       want,
-      stabilityPoolAddress,
       priceFeedAddress,
       oath,
       usdc,
+      balErnPoolId,
+      chainlinkUsdcOracle,
       exchangeSettings,
-      aaveContracts,
+      pools,
     ],
     {kind: "uups", timeout: 0},
   );
