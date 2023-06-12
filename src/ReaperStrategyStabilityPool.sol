@@ -116,61 +116,18 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         compoundingFeeMarginBPS = 9950;
     }
 
-    function _adjustPosition(uint256 _debt) internal override {
-        if (emergencyExit) {
-            return;
-        }
-
-        uint256 wantBalance = balanceOfWant();
-        if (wantBalance > _debt) {
-            uint256 toReinvest = wantBalance - _debt;
-            _deposit(toReinvest);
-        }
-    }
-
-    function _liquidatePosition(uint256 _amountNeeded)
-        internal
-        override
-        returns (uint256 liquidatedAmount, uint256 loss)
-    {
-        uint256 wantBal = balanceOfWant();
-        if (wantBal < _amountNeeded) {
-            _withdraw(_amountNeeded - wantBal);
-            liquidatedAmount = balanceOfWant();
-        } else {
-            liquidatedAmount = _amountNeeded;
-        }
-
-        if (_amountNeeded > liquidatedAmount) {
-            loss = _amountNeeded - liquidatedAmount;
-        }
-    }
-
     function _liquidateAllPositions() internal override returns (uint256 amountFreed) {
         _withdraw(type(uint256).max);
         _compound();
         return balanceOfWant();
     }
 
-    function _harvestCore(uint256 _debt) internal override returns (int256 roi, uint256 repayment) {
+    function _harvestCore() internal override {
         _claimRewards();
         _compound();
 
-        uint256 allocated = IVault(vault).strategies(address(this)).allocated;
-        uint256 totalAssets = balanceOfUsingPriceFeed();
-        uint256 toFree = MathUpgradeable.min(_debt, totalAssets);
-
-        if (totalAssets > allocated) {
-            uint256 profit = totalAssets - allocated;
-            toFree += profit;
-            roi = int256(profit);
-        } else if (totalAssets < allocated) {
-            roi = -int256(allocated - totalAssets);
-        }
-
-        (uint256 amountFreed, uint256 loss) = _liquidatePosition(toFree);
-        repayment = MathUpgradeable.min(_debt, amountFreed);
-        roi -= int256(loss);
+        // TODO tess3rac7 check with Degenicus about this line
+        // uint256 totalAssets = balanceOfUsingPriceFeed();
     }
 
     /**
@@ -235,7 +192,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
      * It gets called whenever someone deposits in the strategy's vault contract
      * or when funds are reinvested in to the strategy.
      */
-    function _deposit(uint256 toReinvest) internal {
+    function _deposit(uint256 toReinvest) internal override {
         if (toReinvest != 0) {
             stabilityPool.provideToSP(toReinvest);
         }
@@ -244,7 +201,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     /**
      * @dev Withdraws funds and sends them back to the vault.
      */
-    function _withdraw(uint256 _amount) internal {
+    function _withdraw(uint256 _amount) internal override {
         if (_hasInitialDeposit(address(this))) {
             stabilityPool.withdrawFromSP(_amount);
         }
@@ -262,24 +219,8 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
      * It takes into account both the funds in hand, the funds in the stability pool,
      * and also the balance of collateral tokens + USDC.
      */
-    function balanceOf() public view override returns (uint256) {
-        return balanceOfPool() + balanceOfWant();
-    }
-
-    /**
-     * @dev Function to calculate the total {want} held by the strat.
-     * It takes into account both the funds in hand, the funds in the stability pool,
-     * and also the balance of collateral tokens + USDC.
-     */
     function balanceOfUsingPriceFeed() public returns (uint256) {
         return balanceOfPoolUsingPriceFeed() + balanceOfWant();
-    }
-
-    /**
-     * @dev The want balance directly held in the strategy itself.
-     */
-    function balanceOfWant() public view returns (uint256) {
-        return IERC20MetadataUpgradeable(want).balanceOf(address(this));
     }
 
     /**
@@ -287,7 +228,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
      * balance of collateral or USDC. The values are converted using oracles and
      * the Velodrome USDC-ERN TWAP and collateral+USDC value discounted slightly.
      */
-    function balanceOfPool() public view returns (uint256) {
+    function balanceOfPool() public view override returns (uint256) {
         uint256 ernCollateralValue = getERNValueOfCollateralGain();
         return balanceOfPoolCommon(ernCollateralValue);
     }

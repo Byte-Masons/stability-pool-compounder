@@ -6,7 +6,7 @@ import "forge-std/Test.sol";
 import "forge-std/console.sol";
 import "src/ReaperStrategyStabilityPool.sol";
 import "vault-v2/ReaperVaultV2.sol";
-import "mixins/interfaces/IVeloRouter.sol";
+import "vault-v2/interfaces/IVeloRouter.sol";
 import "src/mocks/MockAggregator.sol";
 import "src/interfaces/ITroveManager.sol";
 import "src/interfaces/IStabilityPool.sol";
@@ -102,7 +102,9 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
     function setUp() public {
         // Forking
-        optimismFork = vm.createSelectFork("https://opt-mainnet.g.alchemy.com/v2/demo", 97072797);
+        optimismFork = vm.createSelectFork(
+            "https://late-fragrant-rain.optimism.quiknode.pro/08eedcb171832b45c4961c9ff1392491e9b4cfaf/", 105252830
+        );
         assertEq(vm.activeFork(), optimismFork);
 
         // // Deploying stuff
