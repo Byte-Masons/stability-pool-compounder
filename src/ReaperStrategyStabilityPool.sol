@@ -157,7 +157,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
      * It takes into account both the funds in hand, the funds in the stability pool,
      * and also the balance of collateral tokens + USDC.
      */
-    function balanceOfUsingPriceFeed() public returns (uint256) {
+    function _estimatedTotalAssets() internal override returns (uint256) {
         return balanceOfPoolUsingPriceFeed() + balanceOfWant();
     }
 
