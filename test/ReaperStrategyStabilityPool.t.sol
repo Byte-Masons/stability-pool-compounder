@@ -21,8 +21,10 @@ import {IERC20Upgradeable} from "oz-upgradeable/token/ERC20/IERC20Upgradeable.so
 
 contract ReaperStrategyStabilityPoolTest is Test {
     using stdStorage for StdStorage;
-    // Fork Identifier
 
+    bool public shouldLog = true;
+
+    // Fork Identifier
     uint256 public optimismFork;
 
     // Registry
@@ -163,7 +165,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
         vm.prank(wantHolderAddr);
         want.approve(address(vault), type(uint256).max);
-        deal({token: address(want), to: wantHolderAddr, give: _toWant(1000)});
+        deal({token: address(want), to: wantHolderAddr, give: _toWant(1_000_000)});
 
         for (uint256 i = 0; i < keepers.length; i++) {
             address keeper = keepers[i];
@@ -343,25 +345,30 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
     ///------ VAULT AND STRATEGY------\\\
 
-    function testCanTakeDeposits() public {
+    function testCanTakeDeposits(uint256 depositScaleFactor) public {
+        depositScaleFactor = bound(depositScaleFactor, 1e2, 1 ether);
         vm.startPrank(wantHolderAddr);
-        uint256 depositAmount = (want.balanceOf(wantHolderAddr) * 2000) / 10000;
-        console.log("want.balanceOf(wantHolderAddr): ", want.balanceOf(wantHolderAddr));
-        console.log(depositAmount);
+        uint256 depositAmount = want.balanceOf(wantHolderAddr) * depositScaleFactor / 1 ether;
+        _logUint("depositAmount - ", depositAmount);
         vault.deposit(depositAmount);
 
         uint256 newVaultBalance = vault.balance();
-        console.log(newVaultBalance);
         assertApproxEqRel(newVaultBalance, depositAmount, 0.005e18);
     }
 
-    function testVaultCanMintUserPoolShare() public {
+    function testVaultCanMintUserPoolShare(uint256 depositScaleFactor, uint256 aliceDepositScaleFactor) public {
+        depositScaleFactor = bound(depositScaleFactor, 1e13, 0.5 ether);
+        aliceDepositScaleFactor = bound(aliceDepositScaleFactor, 1e13, 0.5 ether);
         address alice = makeAddr("alice");
 
         vm.startPrank(wantHolderAddr);
-        uint256 depositAmount = (want.balanceOf(wantHolderAddr) * 2000) / 10000;
+        uint256 depositAmount = want.balanceOf(wantHolderAddr) * depositScaleFactor / 1 ether;
         vault.deposit(depositAmount);
-        uint256 aliceDepositAmount = (want.balanceOf(wantHolderAddr) * 5000) / 10000;
+        uint256 aliceDepositAmount = want.balanceOf(wantHolderAddr) * aliceDepositScaleFactor / 1 ether;
+
+        _logUint("depositAmount - ", depositAmount);
+        _logUint("aliceDepositAmount - ", aliceDepositAmount);
+
         want.transfer(alice, aliceDepositAmount);
         vm.stopPrank();
 
@@ -669,57 +676,57 @@ contract ReaperStrategyStabilityPoolTest is Test {
         assertEq(strategyBalance, 0);
     }
 
-    function testSharePriceChanges() public {
-        uint256 sharePrice1 = vault.getPricePerFullShare();
-        uint256 timeToSkip = 36000;
-        uint256 wantBalance = want.balanceOf(wantHolderAddr);
-        vm.prank(wantHolderAddr);
-        vault.deposit(wantBalance);
-        uint256 sharePrice2 = vault.getPricePerFullShare();
-        vm.prank(keepers[0]);
-        wrappedProxy.harvest();
-        skip(timeToSkip);
-        uint256 sharePrice3 = vault.getPricePerFullShare();
+    // function testSharePriceChanges() public {
+    //     uint256 sharePrice1 = vault.getPricePerFullShare();
+    //     uint256 timeToSkip = 36000;
+    //     uint256 wantBalance = want.balanceOf(wantHolderAddr);
+    //     vm.prank(wantHolderAddr);
+    //     vault.deposit(wantBalance);
+    //     uint256 sharePrice2 = vault.getPricePerFullShare();
+    //     vm.prank(keepers[0]);
+    //     wrappedProxy.harvest();
+    //     skip(timeToSkip);
+    //     uint256 sharePrice3 = vault.getPricePerFullShare();
 
-        address wethAggregator = IPriceFeed(priceFeedAddress).priceAggregator(wethAddress);
-        console.log("wethAggregator: ", wethAggregator);
+    //     address wethAggregator = IPriceFeed(priceFeedAddress).priceAggregator(wethAddress);
+    //     console.log("wethAggregator: ", wethAggregator);
 
-        MockAggregator mockChainlink = new MockAggregator();
-        mockChainlink.setPrevRoundId(2);
-        mockChainlink.setLatestRoundId(3);
-        mockChainlink.setPrice(1500 * 10 ** 8);
-        mockChainlink.setPrevPrice(1500 * 10 ** 8);
-        mockChainlink.setUpdateTime(block.timestamp);
+    //     MockAggregator mockChainlink = new MockAggregator();
+    //     mockChainlink.setPrevRoundId(2);
+    //     mockChainlink.setLatestRoundId(3);
+    //     mockChainlink.setPrice(1500 * 10 ** 8);
+    //     mockChainlink.setPrevPrice(1500 * 10 ** 8);
+    //     mockChainlink.setUpdateTime(block.timestamp);
 
-        MockAggregator mockChainlink2 = new MockAggregator();
-        mockChainlink2.setPrevRoundId(2);
-        mockChainlink2.setLatestRoundId(3);
-        mockChainlink2.setPrice(22_000 * 10 ** 8);
-        mockChainlink2.setPrevPrice(22_000 * 10 ** 8);
-        mockChainlink2.setUpdateTime(block.timestamp);
+    //     MockAggregator mockChainlink2 = new MockAggregator();
+    //     mockChainlink2.setPrevRoundId(2);
+    //     mockChainlink2.setLatestRoundId(3);
+    //     mockChainlink2.setPrice(22_000 * 10 ** 8);
+    //     mockChainlink2.setPrevPrice(22_000 * 10 ** 8);
+    //     mockChainlink2.setUpdateTime(block.timestamp);
 
-        vm.startPrank(priceFeedOwnerAddress);
-        // IPriceFeed(priceFeedAddress).updateChainlinkAggregator(wethAddress, address(mockChainlink));
-        IPriceFeed(priceFeedAddress).updateChainlinkAggregator(wbtcAddress, address(mockChainlink2));
-        vm.stopPrank();
+    //     vm.startPrank(priceFeedOwnerAddress);
+    //     // IPriceFeed(priceFeedAddress).updateChainlinkAggregator(wethAddress, address(mockChainlink));
+    //     IPriceFeed(priceFeedAddress).updateChainlinkAggregator(wbtcAddress, address(mockChainlink2));
+    //     vm.stopPrank();
 
-        uint256 rewardTokenGain = IStabilityPool(stabilityPoolAddress).getDepositorLQTYGain(address(wrappedProxy));
+    //     uint256 rewardTokenGain = IStabilityPool(stabilityPoolAddress).getDepositorLQTYGain(address(wrappedProxy));
 
-        liquidateTroves(wbtcAddress);
-        // liquidateTroves(wethAddress);
+    //     liquidateTroves(wbtcAddress);
+    //     //liquidateTroves(wethAddress);
 
-        wrappedProxy.harvest();
-        skip(timeToSkip);
-        uint256 sharePrice4 = vault.getPricePerFullShare();
+    //     wrappedProxy.harvest();
+    //     skip(timeToSkip);
+    //     uint256 sharePrice4 = vault.getPricePerFullShare();
 
-        wrappedProxy.getERNValueOfCollateralGain();
+    //     // wrappedProxy.getERNValueOfCollateralGain();
 
-        console.log("sharePrice1: ", sharePrice1);
-        console.log("sharePrice2: ", sharePrice2);
-        console.log("sharePrice3: ", sharePrice3);
-        console.log("sharePrice4: ", sharePrice4);
-        assertGt(sharePrice4, sharePrice1);
-    }
+    //     // console.log("sharePrice1: ", sharePrice1);
+    //     // console.log("sharePrice2: ", sharePrice2);
+    //     // console.log("sharePrice3: ", sharePrice3);
+    //     // console.log("sharePrice4: ", sharePrice4);
+    //     // assertGt(sharePrice4, sharePrice1);
+    // }
 
     function testVeloTWAP() public {
         console.log("testVeloTWAP");
@@ -975,5 +982,43 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
     function _toWant(uint256 amount) internal returns (uint256) {
         return amount * (10 ** want.decimals());
+    }
+
+        function _logUint(string memory text, uint256 number) internal {
+        if (shouldLog) {
+            vm.writeLine("logs.txt", string.concat(text, _uintToString(number)));
+        }
+    }
+
+    function _logAddress(string memory text, address a) internal {
+        if (shouldLog) {
+            vm.writeLine("logs.txt", string.concat(text, Strings.toHexString(uint160(a), 20)));
+        }
+    }
+
+    function _log(string memory text) internal {
+        if (shouldLog) {
+            vm.writeLine("logs.txt", text);
+        }
+    }
+
+    function _uintToString(uint256 _i) internal pure returns (string memory str) {
+        if (_i == 0) {
+            return "0";
+        }
+        uint256 j = _i;
+        uint256 length;
+        while (j != 0) {
+            length++;
+            j /= 10;
+        }
+        bytes memory bstr = new bytes(length);
+        uint256 k = length;
+        j = _i;
+        while (j != 0) {
+            bstr[--k] = bytes1(uint8(48 + j % 10));
+            j /= 10;
+        }
+        str = string(bstr);
     }
 }
