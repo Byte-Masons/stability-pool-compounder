@@ -2,7 +2,7 @@
 
 pragma solidity ^0.8.0;
 
-import "../interfaces/AggregatorV3Interface.sol";
+import "vault-v2/interfaces/AggregatorV3Interface.sol";
 
 // import "../Dependencies/console.sol";
 
