@@ -2,16 +2,13 @@
 
 pragma solidity ^0.8.0;
 
+import "vault-v2/interfaces/ISwapper.sol";
 import {ReaperBaseStrategyv4} from "vault-v2/ReaperBaseStrategyv4.sol";
 import {IStabilityPool} from "./interfaces/IStabilityPool.sol";
 import {IPriceFeed} from "./interfaces/IPriceFeed.sol";
 import {IVault} from "vault-v2/interfaces/IVault.sol";
-import {ICollateralConfig} from "./interfaces/ICollateralConfig.sol";
-import {AggregatorV3Interface} from "./interfaces/AggregatorV3Interface.sol";
+import {AggregatorV3Interface} from "vault-v2/interfaces/AggregatorV3Interface.sol";
 import {IVelodromePair} from "./interfaces/IVelodromePair.sol";
-import {VeloSolidMixin} from "mixins/VeloSolidMixin.sol";
-import {UniV3Mixin} from "mixins/UniV3Mixin.sol";
-import {BalMixin} from "mixins/BalMixin.sol";
 import {IERC20MetadataUpgradeable} from "oz-upgradeable/token/ERC20/extensions/IERC20MetadataUpgradeable.sol";
 import {SafeERC20Upgradeable} from "oz-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 import {MathUpgradeable} from "oz-upgradeable/utils/math/MathUpgradeable.sol";
@@ -19,37 +16,28 @@ import {MathUpgradeable} from "oz-upgradeable/utils/math/MathUpgradeable.sol";
 /**
  * @dev Strategy to compound rewards and liquidation collateral gains in the Ethos stability pool
  */
-contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, UniV3Mixin, BalMixin {
+contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     using SafeERC20Upgradeable for IERC20MetadataUpgradeable;
 
     // 3rd-party contract addresses
     IStabilityPool public stabilityPool;
     IPriceFeed public priceFeed;
-    IERC20MetadataUpgradeable public oath;
     IERC20MetadataUpgradeable public usdc;
-    ExchangeSettings public exchangeSettings; // Holds addresses needed to use Velo, UniV3 and Bal mixins
+    ExchangeSettings public exchangeSettings; // Holds addresses to use Velo, UniV3 and Bal through Swapper
     AggregatorV3Interface public chainlinkUsdcOracle;
     IVelodromePair public veloUsdcErnPool;
 
     uint256 public constant ETHOS_DECIMALS = 18; // Decimals used by ETHOS
-    uint256 public usdcMinAmountOutBPS; // The max allowed slippage when trading in to USDC
     uint256 public ernMinAmountOutBPS; // The max allowed slippage when trading in to ERN
     uint256 public compoundingFeeMarginBPS; // How much collateral value is lowered to account for the costs of swapping
     uint256 public veloUsdcErnQuoteGranularity; // How many samples to look at for Velo pool TWAP
 
-    enum Exchange {
-        Velodrome,
-        Beethoven,
-        UniV3
-    }
-
-    Exchange public usdcToErnExchange; // Controls which exchange is used to swap USDC to ERN
+    ExchangeType public usdcToErnExchange; // Controls which exchange is used to swap USDC to ERN
 
     struct ExchangeSettings {
         address veloRouter;
         address balVault;
         address uniV3Router;
-        address uniV3Quoter;
     }
 
     struct Pools {
@@ -59,7 +47,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
 
     struct Tokens {
         address want;
-        address oath;
         address usdc;
     }
 
@@ -69,46 +56,38 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
      */
     function initialize(
         address _vault,
+        address _swapper,
         address[] memory _strategists,
         address[] memory _multisigRoles,
         address[] memory _keepers,
         address _priceFeed,
-        bytes32 _balErnPoolID,
         address _chainlinkUsdcOracle,
         ExchangeSettings calldata _exchangeSettings,
         Pools calldata _pools,
-        address[] calldata _usdcErnPath,
         Tokens calldata _tokens
     ) public initializer {
         require(_vault != address(0), "vault is 0 address");
+        require(_swapper != address(0), "swapper is 0 address");
         require(_strategists.length != 0, "no strategists");
         require(_multisigRoles.length == 3, "invalid amount of multisig roles");
         require(_tokens.want != address(0), "want is 0 address");
         require(_priceFeed != address(0), "priceFeed is 0 address");
-        require(_tokens.oath != address(0), "oath is 0 address");
         require(_tokens.usdc != address(0), "usdc is 0 address");
         require(_chainlinkUsdcOracle != address(0), "chainlinkUsdcOracle is 0 address");
         require(_exchangeSettings.veloRouter != address(0), "veloRouter is 0 address");
         require(_exchangeSettings.balVault != address(0), "balVault is 0 address");
         require(_exchangeSettings.uniV3Router != address(0), "uniV3Router is 0 address");
-        require(_exchangeSettings.uniV3Quoter != address(0), "uniV3Quoter is 0 address");
         require(_pools.stabilityPool != address(0), "stabilityPool is 0 address");
         require(_pools.veloUsdcErnPool != address(0), "veloUsdcErnPool is 0 address");
 
-        __ReaperBaseStrategy_init(_vault, _tokens.want, _strategists, _multisigRoles, _keepers);
+        __ReaperBaseStrategy_init(_vault, _swapper, _tokens.want, _strategists, _multisigRoles, _keepers);
         stabilityPool = IStabilityPool(_pools.stabilityPool);
         priceFeed = IPriceFeed(_priceFeed);
-        oath = IERC20MetadataUpgradeable(_tokens.oath);
         usdc = IERC20MetadataUpgradeable(_tokens.usdc);
         exchangeSettings = _exchangeSettings;
 
-        usdcMinAmountOutBPS = 9800;
         ernMinAmountOutBPS = 9800;
-        usdcToErnExchange = Exchange.Velodrome;
-
-        _updateVeloSwapPath(_tokens.usdc, _tokens.want, _usdcErnPath);
-        _updateUniV3SwapPath(_tokens.usdc, _tokens.want, _usdcErnPath);
-        _updateBalSwapPoolID(_tokens.usdc, _tokens.want, _balErnPoolID);
+        usdcToErnExchange = ExchangeType.VeloSolid;
 
         chainlinkUsdcOracle = AggregatorV3Interface(_chainlinkUsdcOracle);
         veloUsdcErnPool = IVelodromePair(_pools.veloUsdcErnPool);
@@ -116,116 +95,37 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
         compoundingFeeMarginBPS = 9950;
     }
 
-    function _adjustPosition(uint256 _debt) internal override {
-        if (emergencyExit) {
-            return;
-        }
-
-        uint256 wantBalance = balanceOfWant();
-        if (wantBalance > _debt) {
-            uint256 toReinvest = wantBalance - _debt;
-            _deposit(toReinvest);
-        }
-    }
-
-    function _liquidatePosition(uint256 _amountNeeded)
-        internal
-        override
-        returns (uint256 liquidatedAmount, uint256 loss)
-    {
-        uint256 wantBal = balanceOfWant();
-        if (wantBal < _amountNeeded) {
-            _withdraw(_amountNeeded - wantBal);
-            liquidatedAmount = balanceOfWant();
-        } else {
-            liquidatedAmount = _amountNeeded;
-        }
-
-        if (_amountNeeded > liquidatedAmount) {
-            loss = _amountNeeded - liquidatedAmount;
-        }
-    }
-
     function _liquidateAllPositions() internal override returns (uint256 amountFreed) {
         _withdraw(type(uint256).max);
-        _compound();
+        _harvestCore();
         return balanceOfWant();
     }
 
-    function _harvestCore(uint256 _debt) internal override returns (int256 roi, uint256 repayment) {
-        _claimRewards();
-        _compound();
-
-        uint256 allocated = IVault(vault).strategies(address(this)).allocated;
-        uint256 totalAssets = balanceOfUsingPriceFeed();
-        uint256 toFree = MathUpgradeable.min(_debt, totalAssets);
-
-        if (totalAssets > allocated) {
-            uint256 profit = totalAssets - allocated;
-            toFree += profit;
-            roi = int256(profit);
-        } else if (totalAssets < allocated) {
-            roi = -int256(allocated - totalAssets);
-        }
-
-        (uint256 amountFreed, uint256 loss) = _liquidatePosition(toFree);
-        repayment = MathUpgradeable.min(_debt, amountFreed);
-        roi -= int256(loss);
+    function _beforeHarvestSwapSteps() internal override {
+        _withdraw(0); // claim rewards
     }
 
-    /**
-     * @dev Takes collateral earned from liquidations (could be WBTC, WETH, OP) and compounds it.
-     * Will also take Oath incentive rewards and compound. The collateral will be priced by Ethos
-     * Chainlink oracles for slippage control. USDC as an intermediary is priced using a separate
-     * oracle. Oath is not priced so any slippage is allowed.
-     * ERN is priced using the built in Velodrome TWAP.
-     */
-    function _compound() internal {
-        ICollateralConfig collateralConfig = stabilityPool.collateralConfig();
-        address[] memory assets = collateralConfig.getAllowedCollaterals();
-
-        for (uint256 i = 0; i < assets.length; i++) {
-            address asset = assets[i];
-
-            uint256 collateralBalance = IERC20MetadataUpgradeable(asset).balanceOf(address(this));
-            if (collateralBalance != 0) {
-                uint256 assetValue = _getUSDEquivalentOfCollateralUsingPriceFeed(asset, collateralBalance);
-                uint256 assetValueUsdc = assetValue * (10 ** _getUsdcPriceDecimals()) / _getUsdcPrice();
-                uint256 minAmountOut = (assetValueUsdc * usdcMinAmountOutBPS) / PERCENT_DIVISOR;
-                uint256 scaledMinAmountOut = _scaleToCollateralDecimals(minAmountOut, usdc.decimals());
-                _swapUniV3(
-                    asset,
-                    address(usdc),
-                    collateralBalance,
-                    scaledMinAmountOut,
-                    exchangeSettings.uniV3Router,
-                    exchangeSettings.uniV3Quoter
-                );
-            }
-        }
-
-        uint256 oathBalance = oath.balanceOf(address(this));
-        if (oathBalance != 0) {
-            _swapVelo(address(oath), address(usdc), oathBalance, 0, exchangeSettings.veloRouter);
-        }
-
+    // Swap steps will:
+    // 1. liquidate collateral rewards into USDC using the external Swapper (+ Chainlink oracles)
+    // 2. liquidate oath rewards into USDC using the external swapper (with 0 minAmountOut)
+    // As a final step, we need to convert the USDC into ERN using Velodrome's TWAP.
+    // Since the external Swapper cannot support arbitrary TWAPs at this time, we use this hook so
+    // we can calculate the minAmountOut ourselves and call the swapper directly.
+    function _afterHarvestSwapSteps() internal override {
         uint256 usdcBalance = usdc.balanceOf(address(this));
         if (usdcBalance != 0) {
             uint256 expectedErnAmount = veloUsdcErnPool.quote(address(usdc), usdcBalance, veloUsdcErnQuoteGranularity);
             uint256 minAmountOut = (expectedErnAmount * ernMinAmountOutBPS) / PERCENT_DIVISOR;
-            if (usdcToErnExchange == Exchange.Beethoven) {
-                _swapBal(address(usdc), want, usdcBalance, minAmountOut);
-            } else if (usdcToErnExchange == Exchange.Velodrome) {
-                _swapVelo(address(usdc), want, usdcBalance, minAmountOut, exchangeSettings.veloRouter);
-            } else if (usdcToErnExchange == Exchange.UniV3) {
-                _swapUniV3(
-                    address(usdc),
-                    want,
-                    usdcBalance,
-                    minAmountOut,
-                    exchangeSettings.uniV3Router,
-                    exchangeSettings.uniV3Quoter
-                );
+            MinAmountOutData memory data =
+                MinAmountOutData({kind: MinAmountOutKind.Absolute, absoluteOrBPSValue: minAmountOut});
+            usdc.safeApprove(address(swapper), 0);
+            usdc.safeIncreaseAllowance(address(swapper), usdcBalance);
+            if (usdcToErnExchange == ExchangeType.Bal) {
+                swapper.swapBal(address(usdc), want, usdcBalance, data, exchangeSettings.balVault);
+            } else if (usdcToErnExchange == ExchangeType.VeloSolid) {
+                swapper.swapVelo(address(usdc), want, usdcBalance, data, exchangeSettings.veloRouter);
+            } else if (usdcToErnExchange == ExchangeType.UniV3) {
+                swapper.swapUniV3(address(usdc), want, usdcBalance, data, exchangeSettings.uniV3Router);
             }
         }
     }
@@ -235,7 +135,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
      * It gets called whenever someone deposits in the strategy's vault contract
      * or when funds are reinvested in to the strategy.
      */
-    function _deposit(uint256 toReinvest) internal {
+    function _deposit(uint256 toReinvest) internal override {
         if (toReinvest != 0) {
             stabilityPool.provideToSP(toReinvest);
         }
@@ -244,42 +144,19 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     /**
      * @dev Withdraws funds and sends them back to the vault.
      */
-    function _withdraw(uint256 _amount) internal {
+    function _withdraw(uint256 _amount) internal override {
         if (_hasInitialDeposit(address(this))) {
             stabilityPool.withdrawFromSP(_amount);
         }
     }
 
     /**
-     * @dev Claim rewards
-     */
-    function _claimRewards() internal {
-        _withdraw(0);
-    }
-
-    /**
      * @dev Function to calculate the total {want} held by the strat.
      * It takes into account both the funds in hand, the funds in the stability pool,
      * and also the balance of collateral tokens + USDC.
      */
-    function balanceOf() public view override returns (uint256) {
-        return balanceOfPool() + balanceOfWant();
-    }
-
-    /**
-     * @dev Function to calculate the total {want} held by the strat.
-     * It takes into account both the funds in hand, the funds in the stability pool,
-     * and also the balance of collateral tokens + USDC.
-     */
-    function balanceOfUsingPriceFeed() public returns (uint256) {
+    function _estimatedTotalAssets() internal override returns (uint256) {
         return balanceOfPoolUsingPriceFeed() + balanceOfWant();
-    }
-
-    /**
-     * @dev The want balance directly held in the strategy itself.
-     */
-    function balanceOfWant() public view returns (uint256) {
-        return IERC20MetadataUpgradeable(want).balanceOf(address(this));
     }
 
     /**
@@ -287,7 +164,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
      * balance of collateral or USDC. The values are converted using oracles and
      * the Velodrome USDC-ERN TWAP and collateral+USDC value discounted slightly.
      */
-    function balanceOfPool() public view returns (uint256) {
+    function balanceOfPool() public view override returns (uint256) {
         uint256 ernCollateralValue = getERNValueOfCollateralGain();
         return balanceOfPoolCommon(ernCollateralValue);
     }
@@ -422,13 +299,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     }
 
     /**
-     * @dev Returns the address of the Balancer/BeetX vault used by the Balancer mixin
-     */
-    function _balVault() internal view override returns (address) {
-        return exchangeSettings.balVault;
-    }
-
-    /**
      * @dev Check to ensure an initial deposit has been made in the stability pool
      * Which is a requirement to call withdraw.
      */
@@ -514,40 +384,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     }
 
     /**
-     * @dev Updates the Velodrome swap path to go from {_tokenIn} to {_tokenOut}
-     */
-    function updateVeloSwapPath(address _tokenIn, address _tokenOut, address[] calldata _path) external override {
-        _atLeastRole(STRATEGIST);
-        _updateVeloSwapPath(_tokenIn, _tokenOut, _path);
-    }
-
-    /**
-     * @dev Updates the UniV3 swap path to go from {_tokenIn} to {_tokenOut}
-     */
-    function updateUniV3SwapPath(address _tokenIn, address _tokenOut, address[] calldata _path) external override {
-        _atLeastRole(STRATEGIST);
-        _updateUniV3SwapPath(_tokenIn, _tokenOut, _path);
-    }
-
-    /**
-     * @dev Updates the Balancer/BeetX pool used to go from {_tokenIn} to {_tokenOut}
-     */
-    function updateBalSwapPoolID(address _tokenIn, address _tokenOut, bytes32 _poolID) external override {
-        _atLeastRole(STRATEGIST);
-        _updateBalSwapPoolID(_tokenIn, _tokenOut, _poolID);
-    }
-
-    /**
-     * @dev Updates the {usdcMinAmountOutBPS} which is the minimum amount accepted in a collateral to USDC swap
-     * In BPS so 9500 would allow a 5% slippage.
-     */
-    function updateUsdcMinAmountOutBPS(uint256 _usdcMinAmountOutBPS) external {
-        _atLeastRole(STRATEGIST);
-        require(_usdcMinAmountOutBPS > 8000 && _usdcMinAmountOutBPS < PERCENT_DIVISOR, "Invalid slippage value");
-        usdcMinAmountOutBPS = _usdcMinAmountOutBPS;
-    }
-
-    /**
      * @dev Updates the {ernMinAmountOutBPS} which is the minimum amount accepted in a USDC->ERN/want swap.
      * In BPS so 9500 would allow a 5% slippage.
      */
@@ -560,19 +396,9 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, VeloSolidMixin, Un
     /**
      * @dev Sets the exchange used to swap USDC to ERN/want (can be Velo, UniV3, Balancer)
      */
-    function setUsdcToErnExchange(Exchange _exchange) external {
+    function setUsdcToErnExchange(ExchangeType _exchange) external {
         _atLeastRole(STRATEGIST);
         usdcToErnExchange = _exchange;
-    }
-
-    /**
-     * @dev The pool fees used to swap using UniV3
-     */
-    function _getFeeCandidates() internal override returns (uint24[] memory) {
-        uint24[] memory feeCandidates = new uint24[](2);
-        feeCandidates[0] = 500;
-        feeCandidates[1] = 3_000;
-        return feeCandidates;
     }
 
     /**

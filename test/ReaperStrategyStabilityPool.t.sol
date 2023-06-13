@@ -5,14 +5,16 @@ pragma solidity ^0.8.0;
 import "forge-std/Test.sol";
 import "forge-std/console.sol";
 import "src/ReaperStrategyStabilityPool.sol";
+import "vault-v2/ReaperSwapper.sol";
 import "vault-v2/ReaperVaultV2.sol";
-import "mixins/interfaces/IVeloRouter.sol";
+import "vault-v2/ReaperBaseStrategyv4.sol";
+import "vault-v2/interfaces/ISwapper.sol";
+import "vault-v2/interfaces/IVeloRouter.sol";
 import "src/mocks/MockAggregator.sol";
 import "src/interfaces/ITroveManager.sol";
 import "src/interfaces/IStabilityPool.sol";
 import "src/interfaces/IVelodromePair.sol";
 import "src/interfaces/IAggregatorAdmin.sol";
-import "src/interfaces/AggregatorV3Interface.sol";
 import {IERC20Mintable} from "src/interfaces/IERC20Mintable.sol";
 import {ERC1967Proxy} from "oz/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC20Upgradeable} from "oz-upgradeable/token/ERC20/IERC20Upgradeable.sol";
@@ -97,15 +99,25 @@ contract ReaperStrategyStabilityPoolTest is Test {
     ERC1967Proxy public proxy;
     ReaperStrategyStabilityPool public wrappedProxy;
 
+    ISwapper public swapper;
+
     ERC20 public want = ERC20(wantAddress);
     ERC20 public wftm = ERC20(wethAddress);
 
     function setUp() public {
         // Forking
-        optimismFork = vm.createSelectFork("https://opt-mainnet.g.alchemy.com/v2/demo", 97072797);
+        optimismFork = vm.createSelectFork(
+            "https://late-fragrant-rain.optimism.quiknode.pro/08eedcb171832b45c4961c9ff1392491e9b4cfaf/", 105252830
+        );
         assertEq(vm.activeFork(), optimismFork);
 
         // // Deploying stuff
+        ReaperSwapper swapperImpl = new ReaperSwapper();
+        ERC1967Proxy swapperProxy = new ERC1967Proxy(address(swapperImpl), "");
+        ReaperSwapper wrappedSwapperProxy = ReaperSwapper(address(swapperProxy));
+        wrappedSwapperProxy.initialize(strategists, guardianAddress, superAdminAddress);
+        swapper = ISwapper(address(swapperProxy));
+
         vault =
         new ReaperVaultV2(wantAddress, vaultName, vaultSymbol, vaultTvlCap, treasuryAddress, strategists, multisigRoles);
         implementation = new ReaperStrategyStabilityPool();
@@ -116,7 +128,6 @@ contract ReaperStrategyStabilityPoolTest is Test {
         exchangeSettings.veloRouter = veloRouter;
         exchangeSettings.balVault = balVault;
         exchangeSettings.uniV3Router = uniV3Router;
-        exchangeSettings.uniV3Quoter = uniV3Quoter;
 
         ReaperStrategyStabilityPool.Pools memory pools;
         pools.stabilityPool = stabilityPoolAddress;
@@ -128,26 +139,27 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
         ReaperStrategyStabilityPool.Tokens memory tokens;
         tokens.want = wantAddress;
-        tokens.oath = oathAddress;
         tokens.usdc = usdcAddress;
 
         wrappedProxy.initialize(
             address(vault),
+            address(swapper),
             strategists,
             multisigRoles,
             keepers,
             priceFeedAddress,
-            balErnPoolId,
             chainlinkUsdcOracle,
             exchangeSettings,
             pools,
-            usdcErnPath,
             tokens
         );
 
         uint256 feeBPS = 500;
         uint256 allocation = 10_000;
         vault.addStrategy(address(wrappedProxy), feeBPS, allocation);
+
+        vm.prank(guardianAddress);
+        swapper.updateUniV3Quoter(uniV3Router, uniV3Quoter);
 
         vm.prank(wantHolderAddr);
         want.approve(address(vault), type(uint256).max);
@@ -159,52 +171,102 @@ contract ReaperStrategyStabilityPoolTest is Test {
             // console.log("adding keeper: ", keeper);
         }
 
-        // function updateVeloSwapPath(address _tokenIn, address _tokenOut, address[] calldata _path)
+        vm.startPrank(strategistAddr);
+        swapper.updateVeloSwapPath(usdcAddress, wantAddress, veloRouter, usdcErnPath);
+        swapper.updateUniV3SwapPath(usdcAddress, wantAddress, uniV3Router, usdcErnPath);
+        swapper.updateBalSwapPoolID(usdcAddress, wantAddress, balVault, balErnPoolId);
+
         address[] memory wethErnPath = new address[](3);
         wethErnPath[0] = wethAddress;
         wethErnPath[1] = usdcAddress;
         wethErnPath[2] = wantAddress;
-        wrappedProxy.updateVeloSwapPath(wethAddress, wantAddress, wethErnPath);
+        swapper.updateVeloSwapPath(wethAddress, wantAddress, veloRouter, wethErnPath);
 
         address[] memory wbtcErnPath = new address[](3);
         wbtcErnPath[0] = wbtcAddress;
         wbtcErnPath[1] = usdcAddress;
         wbtcErnPath[2] = wantAddress;
-        wrappedProxy.updateVeloSwapPath(wbtcAddress, wantAddress, wbtcErnPath);
+        swapper.updateVeloSwapPath(wbtcAddress, wantAddress, veloRouter, wbtcErnPath);
 
         address[] memory oathErnPath = new address[](3);
         oathErnPath[0] = oathAddress;
         oathErnPath[1] = usdcAddress;
         oathErnPath[2] = wantAddress;
-        wrappedProxy.updateVeloSwapPath(oathAddress, wantAddress, oathErnPath);
+        swapper.updateVeloSwapPath(oathAddress, wantAddress, veloRouter, oathErnPath);
 
         address[] memory oathUsdcPath = new address[](2);
         oathUsdcPath[0] = oathAddress;
         oathUsdcPath[1] = usdcAddress;
-        wrappedProxy.updateVeloSwapPath(oathAddress, usdcAddress, oathUsdcPath);
+        swapper.updateVeloSwapPath(oathAddress, usdcAddress, veloRouter, oathUsdcPath);
 
         address[] memory wethUsdcPath = new address[](2);
         wethUsdcPath[0] = wethAddress;
         wethUsdcPath[1] = usdcAddress;
-        wrappedProxy.updateUniV3SwapPath(wethAddress, usdcAddress, wethUsdcPath);
+        swapper.updateUniV3SwapPath(wethAddress, usdcAddress, uniV3Router, wethUsdcPath);
 
         address[] memory wbtcUsdcPath = new address[](3);
         wbtcUsdcPath[0] = wbtcAddress;
         wbtcUsdcPath[1] = wethAddress;
         wbtcUsdcPath[2] = usdcAddress;
-        wrappedProxy.updateUniV3SwapPath(wbtcAddress, usdcAddress, wbtcUsdcPath);
+        swapper.updateUniV3SwapPath(wbtcAddress, usdcAddress, uniV3Router, wbtcUsdcPath);
 
         address[] memory opUsdcPath = new address[](3);
         opUsdcPath[0] = opAddress;
         opUsdcPath[1] = wethAddress;
         opUsdcPath[2] = usdcAddress;
-        wrappedProxy.updateUniV3SwapPath(opAddress, usdcAddress, opUsdcPath);
+        swapper.updateUniV3SwapPath(opAddress, usdcAddress, uniV3Router, opUsdcPath);
+        vm.stopPrank();
 
-        // address[] memory usdcErnPath = new address[](2);
-        // usdcErnPath[0] = usdcAddress;
-        // usdcErnPath[1] = wantAddress;
-        // wrappedProxy.updateUniV3SwapPath(usdcAddress, wantAddress, usdcErnPath);
-        // wrappedProxy.updateVeloSwapPath(usdcAddress, wantAddress, usdcErnPath);
+        // Register CL aggregators in Swapper for WETH, WBTC, OP, and USDC
+        // We set high timeouts since we do a lot of manual time skipping in tests
+        // 2 days should be plenty = 2 * 24 * 60 * 60 = 172800
+        // Since our strategy assumes that USDC ~= ERN, we reuse the USDC aggregator for ERN
+        vm.startPrank(guardianAddress);
+        swapper.updateTokenAggregator(wethAddress, 0x13e3Ee699D1909E989722E753853AE30b17e08c5, 172800);
+        swapper.updateTokenAggregator(wbtcAddress, 0xD702DD976Fb76Fffc2D3963D037dfDae5b04E593, 172800);
+        swapper.updateTokenAggregator(opAddress, 0x0D276FC14719f9292D5C1eA2198673d1f4269246, 172800);
+        swapper.updateTokenAggregator(usdcAddress, 0x16a9FA2FDa030272Ce99B29CF780dFA30361E0f3, 172800);
+        vm.stopPrank();
+
+        // set our swap steps
+        // step 1: weth -> usdc using univ3 w/ CL aggregators and minAmountOutBPS as 9950
+        // step 2: wbtc -> usdc using univ3 w/ CL aggregators and minAmountOutBPS as 9950
+        // step 3: op -> usdc using univ3 w/ CL aggregators and minAmountOutBPS as 9950
+        // step 4: oath -> usdc using velo w/ 0 for minAmountOut
+        ReaperBaseStrategyv4.SwapStep memory step1 = ReaperBaseStrategyv4.SwapStep({
+            exType: ReaperBaseStrategyv4.ExchangeType.UniV3,
+            start: wethAddress,
+            end: usdcAddress,
+            minAmountOutData: MinAmountOutData({kind: MinAmountOutKind.ChainlinkBased, absoluteOrBPSValue: 9950}),
+            exchangeAddress: uniV3Router
+        });
+        ReaperBaseStrategyv4.SwapStep memory step2 = ReaperBaseStrategyv4.SwapStep({
+            exType: ReaperBaseStrategyv4.ExchangeType.UniV3,
+            start: wbtcAddress,
+            end: usdcAddress,
+            minAmountOutData: MinAmountOutData({kind: MinAmountOutKind.ChainlinkBased, absoluteOrBPSValue: 9950}),
+            exchangeAddress: uniV3Router
+        });
+        ReaperBaseStrategyv4.SwapStep memory step3 = ReaperBaseStrategyv4.SwapStep({
+            exType: ReaperBaseStrategyv4.ExchangeType.UniV3,
+            start: opAddress,
+            end: usdcAddress,
+            minAmountOutData: MinAmountOutData({kind: MinAmountOutKind.ChainlinkBased, absoluteOrBPSValue: 9950}),
+            exchangeAddress: uniV3Router
+        });
+        ReaperBaseStrategyv4.SwapStep memory step4 = ReaperBaseStrategyv4.SwapStep({
+            exType: ReaperBaseStrategyv4.ExchangeType.VeloSolid,
+            start: oathAddress,
+            end: usdcAddress,
+            minAmountOutData: MinAmountOutData({kind: MinAmountOutKind.Absolute, absoluteOrBPSValue: 0}),
+            exchangeAddress: veloRouter
+        });
+        ReaperBaseStrategyv4.SwapStep[] memory steps = new ReaperBaseStrategyv4.SwapStep[](4);
+        steps[0] = step1;
+        steps[1] = step2;
+        steps[2] = step3;
+        steps[3] = step4;
+        wrappedProxy.setHarvestSwapSteps(steps);
 
         uint256 mintAmount = 1_000_000 ether;
         vm.prank(borrowerOperationsAddress);
@@ -227,11 +289,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
         vm.prank(opHolder);
         IERC20Mintable(opAddress).approve(address(wrappedProxy), opBalance);
 
-        wrappedProxy.updateUsdcMinAmountOutBPS(9950);
         wrappedProxy.updateErnMinAmountOutBPS(9950);
-
-        ReaperStrategyStabilityPool.Exchange currentExchange = ReaperStrategyStabilityPool.Exchange.Velodrome;
-        wrappedProxy.setUsdcToErnExchange(currentExchange);
+        wrappedProxy.setUsdcToErnExchange(ReaperBaseStrategyv4.ExchangeType.VeloSolid);
 
         wbtcAggregator = AggregatorV3Interface(IPriceFeed(priceFeedAddress).priceAggregator(wbtcAddress));
         wethAggregator = AggregatorV3Interface(IPriceFeed(priceFeedAddress).priceAggregator(wethAddress));
@@ -612,7 +671,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
     function testSharePriceChanges() public {
         uint256 sharePrice1 = vault.getPricePerFullShare();
-        uint256 timeToSkip = 360000;
+        uint256 timeToSkip = 36000;
         uint256 wantBalance = want.balanceOf(wantHolderAddr);
         vm.prank(wantHolderAddr);
         vault.deposit(wantBalance);
@@ -787,9 +846,9 @@ contract ReaperStrategyStabilityPoolTest is Test {
         // console.log("wbtcAggregator: ", wbtcAggregator);
         // console.log("wethAggregator: ", wethAggregator);
         // console.log("opAggregator: ", opAggregator);
-        int256 wbtcPrice = wbtcAggregator.latestAnswer();
-        int256 wethPrice = wethAggregator.latestAnswer();
-        int256 opPrice = opAggregator.latestAnswer();
+        (, int256 wbtcPrice,,,) = wbtcAggregator.latestRoundData();
+        (, int256 wethPrice,,,) = wethAggregator.latestRoundData();
+        (, int256 opPrice,,,) = opAggregator.latestRoundData();
         console.log("wbtcPrice: ");
         console.logInt(wbtcPrice);
         console.log("wethPrice: ");
@@ -810,7 +869,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
         console.log("usdValueInCollateral: ", usdValueInCollateral);
         assertEq(usdValueInCollateral, expectedUsdValueInCollateral);
 
-        uint256 usdcPrice = uint256(usdcAggregator.latestAnswer());
+        (, int256 usdcAnswer,,,) = usdcAggregator.latestRoundData();
+        uint256 usdcPrice = uint256(usdcAnswer);
         console.log("usdcPrice: ", usdcPrice);
 
         // uint256 scaledUsdValueInCollateral = ;
