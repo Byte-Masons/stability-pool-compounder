@@ -130,8 +130,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         }
     }
 
-    // TODO tess3rac7 define estimatedTotalAssets for use in harvest
-
     /**
      * @dev Function that puts the funds to work.
      * It gets called whenever someone deposits in the strategy's vault contract
