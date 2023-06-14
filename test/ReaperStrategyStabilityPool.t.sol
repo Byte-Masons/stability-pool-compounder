@@ -357,8 +357,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
     }
 
     function testVaultCanMintUserPoolShare(uint256 depositScaleFactor, uint256 aliceDepositScaleFactor) public {
-        depositScaleFactor = bound(depositScaleFactor, 1e13, 0.5 ether);
-        aliceDepositScaleFactor = bound(aliceDepositScaleFactor, 1e13, 0.5 ether);
+        depositScaleFactor = bound(depositScaleFactor, 1e2, 0.5 ether);
+        aliceDepositScaleFactor = bound(aliceDepositScaleFactor, 1e2, 0.5 ether);
         address alice = makeAddr("alice");
 
         vm.startPrank(wantHolderAddr);
@@ -392,9 +392,11 @@ contract ReaperStrategyStabilityPoolTest is Test {
         assertEq(aliceVaultBalance, 0);
     }
 
-    function testVaultAllowsWithdrawals() public {
+    function testVaultAllowsWithdrawals(uint256 depositScaleFactor) public {
+        depositScaleFactor = bound(depositScaleFactor, 1e2, 1 ether);
+
         uint256 userBalance = want.balanceOf(wantHolderAddr);
-        uint256 depositAmount = (want.balanceOf(wantHolderAddr) * 5000) / 10000;
+        uint256 depositAmount = userBalance * depositScaleFactor / 1 ether;
         vm.startPrank(wantHolderAddr);
         vault.deposit(depositAmount);
         vault.withdrawAll();
@@ -403,14 +405,17 @@ contract ReaperStrategyStabilityPoolTest is Test {
         assertEq(userBalance, userBalanceAfterWithdraw);
     }
 
-    function testVaultAllowsSmallWithdrawal() public {
+    function testVaultAllowsSmallWithdrawal(uint256 depositScaleFactor, uint256 aliceDepositScaleFactor) public {
+        depositScaleFactor = bound(depositScaleFactor, 1e2, 0.5 ether);
+        aliceDepositScaleFactor = bound(aliceDepositScaleFactor, 1e2, 0.5 ether);
+
         address alice = makeAddr("alice");
 
         vm.startPrank(wantHolderAddr);
-        uint256 aliceDepositAmount = (want.balanceOf(wantHolderAddr) * 1000) / 10000;
+        uint256 aliceDepositAmount = (want.balanceOf(wantHolderAddr) * aliceDepositScaleFactor) / 1 ether;
         want.transfer(alice, aliceDepositAmount);
         uint256 userBalance = want.balanceOf(wantHolderAddr);
-        uint256 depositAmount = (want.balanceOf(wantHolderAddr) * 100) / 10000;
+        uint256 depositAmount = userBalance * depositScaleFactor / 1 ether;
         vault.deposit(depositAmount);
         vm.stopPrank();
 
@@ -426,9 +431,10 @@ contract ReaperStrategyStabilityPoolTest is Test {
         assertEq(userBalance, userBalanceAfterWithdraw);
     }
 
-    function testVaultHandlesSmallDepositAndWithdraw() public {
+    function testVaultHandlesSmallDepositAndWithdraw(uint256 depositScaleFactor) public {
+        depositScaleFactor = bound(depositScaleFactor, 1e2, 1e8);
         uint256 userBalance = want.balanceOf(wantHolderAddr);
-        uint256 depositAmount = (want.balanceOf(wantHolderAddr) * 10) / 10000;
+        uint256 depositAmount = userBalance * depositScaleFactor / 1 ether;
         vm.startPrank(wantHolderAddr);
         vault.deposit(depositAmount);
 
@@ -438,9 +444,11 @@ contract ReaperStrategyStabilityPoolTest is Test {
         assertEq(userBalance, userBalanceAfterWithdraw);
     }
 
-    function testCanHarvest() public {
+    function testCanHarvest(uint256 depositScaleFactor) public {
+        depositScaleFactor = bound(depositScaleFactor, 1e2, 1 ether);
         uint256 timeToSkip = 3600;
         uint256 wantBalance = want.balanceOf(wantHolderAddr);
+        uint256 depositAmount = wantBalance * depositScaleFactor / 1 ether;
         vm.prank(wantHolderAddr);
         vault.deposit(wantBalance);
         vm.startPrank(keepers[0]);
@@ -449,11 +457,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         uint256 vaultBalanceBefore = vault.balance();
         skip(timeToSkip);
         int256 roi = wrappedProxy.harvest();
-        console.log("roi: ");
-        console.logInt(roi);
         uint256 vaultBalanceAfter = vault.balance();
-        console.log("vaultBalanceBefore: ", vaultBalanceBefore);
-        console.log("vaultBalanceAfter: ", vaultBalanceAfter);
 
         assertEq(vaultBalanceAfter - vaultBalanceBefore, uint256(roi));
     }
@@ -544,9 +548,10 @@ contract ReaperStrategyStabilityPoolTest is Test {
     //     console.log("strategyWbtcBalance: ", strategyWbtcBalance);
     // }
 
-    function testCanProvideYield() public {
-        uint256 timeToSkip = 3600;
-        uint256 depositAmount = (want.balanceOf(wantHolderAddr) * 1000) / 10000;
+    function testCanProvideYield(uint256 depositScaleFactor) public {
+        depositScaleFactor = bound(depositScaleFactor, 1e10, 1 ether);
+        uint256 timeToSkip = 36000;
+        uint256 depositAmount = (want.balanceOf(wantHolderAddr) * depositScaleFactor) / 1 ether;
 
         vm.prank(wantHolderAddr);
         vault.deposit(depositAmount);
@@ -565,11 +570,12 @@ contract ReaperStrategyStabilityPoolTest is Test {
         assertEq(finalVaultBalance > initialVaultBalance, true);
     }
 
-    function testStrategyGetsMoreFunds() public {
+    function testStrategyGetsMoreFunds(uint256 depositScaleFactor) public {
+        depositScaleFactor = bound(depositScaleFactor, 1e11, 0.5 ether);
         uint256 startingAllocationBPS = 9000;
         vault.updateStrategyAllocBPS(address(wrappedProxy), startingAllocationBPS);
         uint256 timeToSkip = 3600;
-        uint256 depositAmount = 500 ether;
+        uint256 depositAmount = (want.balanceOf(wantHolderAddr) * depositScaleFactor) / 1 ether;
 
         vm.prank(wantHolderAddr);
         vault.deposit(depositAmount);
@@ -580,8 +586,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
         uint256 vaultWantBalance = want.balanceOf(address(vault));
         uint256 strategyBalance = wrappedProxy.balanceOf();
         assertEq(vaultBalance, depositAmount);
-        assertEq(vaultWantBalance, 50 ether);
-        assertEq(strategyBalance, 450 ether);
+        assertEq(vaultWantBalance, depositAmount / 10);
+        assertEq(strategyBalance, depositAmount / 10 * 9);
 
         vm.prank(wantHolderAddr);
         vault.deposit(depositAmount);
@@ -594,15 +600,16 @@ contract ReaperStrategyStabilityPoolTest is Test {
         strategyBalance = wrappedProxy.balanceOf();
         console.log("strategyBalance: ", strategyBalance);
         assertGt(vaultBalance, depositAmount * 2);
-        assertGt(vaultWantBalance, 100 ether);
-        assertEq(strategyBalance, 900 ether);
+        assertGt(vaultWantBalance, depositAmount / 5);
+        assertEq(strategyBalance, depositAmount / 5 * 9);
     }
 
-    function testVaultPullsFunds() public {
+    function testVaultPullsFunds(uint256 depositScaleFactor) public {
+        depositScaleFactor = bound(depositScaleFactor, 1e11, 0.5 ether);
         uint256 startingAllocationBPS = 9000;
         vault.updateStrategyAllocBPS(address(wrappedProxy), startingAllocationBPS);
         uint256 timeToSkip = 3600;
-        uint256 depositAmount = 100 ether;
+        uint256 depositAmount = (want.balanceOf(wantHolderAddr) * depositScaleFactor) / 1 ether;
 
         vm.prank(wantHolderAddr);
         vault.deposit(depositAmount);
@@ -614,8 +621,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
         uint256 vaultWantBalance = want.balanceOf(address(vault));
         uint256 strategyBalance = wrappedProxy.balanceOf();
         assertEq(vaultBalance, depositAmount);
-        assertEq(vaultWantBalance, 10 ether);
-        assertEq(strategyBalance, 90 ether);
+        assertEq(vaultWantBalance, depositAmount / 10);
+        assertEq(strategyBalance, depositAmount / 10 * 9);
 
         uint256 newAllocationBPS = 7000;
         vault.updateStrategyAllocBPS(address(wrappedProxy), newAllocationBPS);
@@ -625,8 +632,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
         vaultWantBalance = want.balanceOf(address(vault));
         strategyBalance = wrappedProxy.balanceOf();
         assertGt(vaultBalance, depositAmount);
-        assertGt(vaultWantBalance, 30 ether);
-        assertEq(strategyBalance, 70 ether);
+        assertGt(vaultWantBalance, depositAmount / 10 * 3);
+        assertEq(strategyBalance, depositAmount / 10 * 7);
 
         vm.prank(wantHolderAddr);
         vault.deposit(depositAmount);
@@ -638,15 +645,16 @@ contract ReaperStrategyStabilityPoolTest is Test {
         vaultWantBalance = want.balanceOf(address(vault));
         strategyBalance = wrappedProxy.balanceOf();
         assertGt(vaultBalance, depositAmount * 2);
-        assertGt(vaultWantBalance, 60 ether);
-        assertGt(strategyBalance, 140 ether);
+        assertGt(vaultWantBalance, depositAmount / 10 * 6);
+        assertGt(strategyBalance, depositAmount / 10 * 14);
     }
 
-    function testEmergencyShutdown() public {
+    function testEmergencyShutdown(uint256 depositScaleFactor) public {
+        depositScaleFactor = bound(depositScaleFactor, 1e11, 1 ether);
         uint256 startingAllocationBPS = 9000;
         vault.updateStrategyAllocBPS(address(wrappedProxy), startingAllocationBPS);
         uint256 timeToSkip = 3600;
-        uint256 depositAmount = 1000 ether;
+        uint256 depositAmount = (want.balanceOf(wantHolderAddr) * depositScaleFactor) / 1 ether;
 
         vm.prank(wantHolderAddr);
         vault.deposit(depositAmount);
@@ -658,8 +666,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
         uint256 vaultWantBalance = want.balanceOf(address(vault));
         uint256 strategyBalance = wrappedProxy.balanceOf();
         assertEq(vaultBalance, depositAmount);
-        assertEq(vaultWantBalance, 100 ether);
-        assertEq(strategyBalance, 900 ether);
+        assertEq(vaultWantBalance, depositAmount / 10);
+        assertEq(strategyBalance, depositAmount / 10 * 9);
 
         vault.setEmergencyShutdown(true);
         wrappedProxy.harvest();
@@ -667,10 +675,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         vaultBalance = vault.balance();
         vaultWantBalance = want.balanceOf(address(vault));
         strategyBalance = wrappedProxy.balanceOf();
-        console.log("vaultBalance: ", vaultBalance);
-        console.log("depositAmount: ", depositAmount);
-        console.log("vaultWantBalance: ", vaultWantBalance);
-        console.log("strategyBalance: ", strategyBalance);
+        
         assertGt(vaultBalance, depositAmount);
         assertGt(vaultWantBalance, depositAmount);
         assertEq(strategyBalance, 0);
