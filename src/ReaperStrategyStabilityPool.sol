@@ -7,6 +7,7 @@ import {ReaperBaseStrategyv4} from "vault-v2/ReaperBaseStrategyv4.sol";
 import {IStabilityPool} from "./interfaces/IStabilityPool.sol";
 import {IPriceFeed} from "./interfaces/IPriceFeed.sol";
 import {IVault} from "vault-v2/interfaces/IVault.sol";
+import {AggregatorV3Interface} from "vault-v2/interfaces/AggregatorV3Interface.sol";
 import {IVelodromePair} from "./interfaces/IVelodromePair.sol";
 import {IERC20MetadataUpgradeable} from "oz-upgradeable/token/ERC20/extensions/IERC20MetadataUpgradeable.sol";
 import {SafeERC20Upgradeable} from "oz-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
@@ -23,6 +24,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     IPriceFeed public priceFeed;
     IERC20MetadataUpgradeable public usdc;
     ExchangeSettings public exchangeSettings; // Holds addresses to use Velo, UniV3 and Bal through Swapper
+    AggregatorV3Interface public sequencerUptimeFeed;
     IVelodromePair public veloUsdcErnPool;
 
     uint256 public constant ETHOS_DECIMALS = 18; // Decimals used by ETHOS
@@ -49,6 +51,8 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         address usdc;
     }
 
+    error SequencerDown();
+
     /**
      * @dev Initializes the strategy. Sets parameters, saves routes, and gives allowances.
      * @notice see documentation for each variable above its respective declaration.
@@ -60,6 +64,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         address[] memory _multisigRoles,
         address[] memory _keepers,
         address _priceFeed,
+        address _sequencerUptimeFeed,
         ExchangeSettings calldata _exchangeSettings,
         Pools calldata _pools,
         Tokens calldata _tokens
@@ -71,6 +76,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         require(_tokens.want != address(0), "want is 0 address");
         require(_priceFeed != address(0), "priceFeed is 0 address");
         require(_tokens.usdc != address(0), "usdc is 0 address");
+        require(_sequencerUptimeFeed != address(0), "sequencerUptimeFeed is 0 address");
         require(_exchangeSettings.veloRouter != address(0), "veloRouter is 0 address");
         require(_exchangeSettings.balVault != address(0), "balVault is 0 address");
         require(_exchangeSettings.uniV3Router != address(0), "uniV3Router is 0 address");
@@ -87,6 +93,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         ernMinAmountOutBPS = 9800;
         usdcToErnExchange = ExchangeType.VeloSolid;
 
+        sequencerUptimeFeed = AggregatorV3Interface(_sequencerUptimeFeed);
         veloUsdcErnPool = IVelodromePair(_pools.veloUsdcErnPool);
         veloUsdcErnQuoteGranularity = 2;
         compoundingFeeMarginBPS = 9950;
@@ -99,6 +106,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     }
 
     function _beforeHarvestSwapSteps() internal override {
+        _revertIfSequencerDown();
         _withdraw(0); // claim rewards
     }
 
@@ -347,6 +355,29 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
             scaledColl = scaledColl * (10 ** (_collDecimals - ETHOS_DECIMALS));
         } else if (_collDecimals < ETHOS_DECIMALS) {
             scaledColl = scaledColl / (10 ** (ETHOS_DECIMALS - _collDecimals));
+        }
+    }
+
+    /**
+     * @dev Reverts if the L2 sequencer is down
+     */
+    function _revertIfSequencerDown()
+        internal
+        view
+    {
+        (
+            /*uint80 roundID*/,
+            int256 answer,
+            /*uint256 startedAt*/,
+            /*uint256 updatedAt*/,
+            /*uint80 answeredInRound*/
+        ) = sequencerUptimeFeed.latestRoundData();
+
+        // Answer == 0: Sequencer is up
+        // Answer == 1: Sequencer is down
+        bool isSequencerUp = answer == 0;
+        if (!isSequencerUp) {
+            revert SequencerDown();
         }
     }
 
