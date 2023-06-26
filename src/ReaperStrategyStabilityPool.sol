@@ -239,7 +239,9 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
                 continue;
             }
             uint256 amount = amounts[i] + IERC20MetadataUpgradeable(asset).balanceOf(address(this));
-            usdValueOfCollateralGain += _getUSDEquivalentOfCollateral(asset, amount);
+            if (amount != 0) {
+                usdValueOfCollateralGain += _getUSDEquivalentOfCollateral(asset, amount);
+            }
         }
     }
 
@@ -255,7 +257,9 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
                 continue;
             }
             uint256 amount = amounts[i] + IERC20MetadataUpgradeable(asset).balanceOf(address(this));
-            usdValueOfCollateralGain += _getUSDEquivalentOfCollateralUsingPriceFeed(asset, amount);
+            if (amount != 0) {
+                usdValueOfCollateralGain += _getUSDEquivalentOfCollateralUsingPriceFeed(asset, amount);
+            }
         }
     }
 
