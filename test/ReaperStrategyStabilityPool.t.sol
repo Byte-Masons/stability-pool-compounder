@@ -150,7 +150,6 @@ contract ReaperStrategyStabilityPoolTest is Test {
             multisigRoles,
             keepers,
             priceFeedAddress,
-            chainlinkUsdcOracle,
             exchangeSettings,
             pools,
             tokens
@@ -858,6 +857,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
         console.log("opPrice: ");
         console.logInt(opPrice);
 
+        // All usd values must have 18 decimals for comparison.
+        // WETH and OP already have 18 decimals, but we need to scale WBTC.
         uint256 wbtcUsdValue = wbtcAmount * uint256(wbtcPrice) * (10 ** 2);
         uint256 wethUsdValue = wethAmount * uint256(wethPrice) / (10 ** 8);
         uint256 opUsdValue = opAmount * uint256(opPrice) / (10 ** 8);

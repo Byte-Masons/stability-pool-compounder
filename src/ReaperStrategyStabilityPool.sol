@@ -7,7 +7,6 @@ import {ReaperBaseStrategyv4} from "vault-v2/ReaperBaseStrategyv4.sol";
 import {IStabilityPool} from "./interfaces/IStabilityPool.sol";
 import {IPriceFeed} from "./interfaces/IPriceFeed.sol";
 import {IVault} from "vault-v2/interfaces/IVault.sol";
-import {AggregatorV3Interface} from "vault-v2/interfaces/AggregatorV3Interface.sol";
 import {IVelodromePair} from "./interfaces/IVelodromePair.sol";
 import {IERC20MetadataUpgradeable} from "oz-upgradeable/token/ERC20/extensions/IERC20MetadataUpgradeable.sol";
 import {SafeERC20Upgradeable} from "oz-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
@@ -24,7 +23,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     IPriceFeed public priceFeed;
     IERC20MetadataUpgradeable public usdc;
     ExchangeSettings public exchangeSettings; // Holds addresses to use Velo, UniV3 and Bal through Swapper
-    AggregatorV3Interface public chainlinkUsdcOracle;
     IVelodromePair public veloUsdcErnPool;
 
     uint256 public constant ETHOS_DECIMALS = 18; // Decimals used by ETHOS
@@ -62,7 +60,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         address[] memory _multisigRoles,
         address[] memory _keepers,
         address _priceFeed,
-        address _chainlinkUsdcOracle,
         ExchangeSettings calldata _exchangeSettings,
         Pools calldata _pools,
         Tokens calldata _tokens
@@ -74,7 +71,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         require(_tokens.want != address(0), "want is 0 address");
         require(_priceFeed != address(0), "priceFeed is 0 address");
         require(_tokens.usdc != address(0), "usdc is 0 address");
-        require(_chainlinkUsdcOracle != address(0), "chainlinkUsdcOracle is 0 address");
         require(_exchangeSettings.veloRouter != address(0), "veloRouter is 0 address");
         require(_exchangeSettings.balVault != address(0), "balVault is 0 address");
         require(_exchangeSettings.uniV3Router != address(0), "uniV3Router is 0 address");
@@ -91,7 +87,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         ernMinAmountOutBPS = 9800;
         usdcToErnExchange = ExchangeType.VeloSolid;
 
-        chainlinkUsdcOracle = AggregatorV3Interface(_chainlinkUsdcOracle);
         veloUsdcErnPool = IVelodromePair(_pools.veloUsdcErnPool);
         veloUsdcErnQuoteGranularity = 2;
         compoundingFeeMarginBPS = 9950;
@@ -268,9 +263,8 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
      * The precision of {_amount} is whatever {_collateral}'s native decimals are (ex. 8 for wBTC)
      */
     function _getUSDEquivalentOfCollateral(address _collateral, uint256 _amount) internal view returns (uint256) {
-        uint256 price = _getCollateralPrice(_collateral);
-        return
-            _getUSDEquivalentOfCollateralCommon(_collateral, _amount, price, _getCollateralPriceDecimals(_collateral));
+        uint256 price = swapper.getChainlinkPriceTargetDigits(_collateral);
+        return _getUSDEquivalentOfCollateralCommon(_collateral, _amount, price, ETHOS_DECIMALS);
     }
 
     /**
@@ -306,10 +300,14 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
      * The precision of {_amount} is 18 decimals
      */
     function _getUsdcEquivalentOfUSD(uint256 _amount) internal view returns (uint256) {
-        uint256 scaledAmount = _scaleToCollateralDecimals(_amount, usdc.decimals());
-        uint256 price = _getUsdcPrice();
-        uint256 usdcAmount = (scaledAmount * (10 ** _getUsdcPriceDecimals())) / price;
-        return usdcAmount;
+        uint256 usdcPrice18Decimals;
+        try swapper.getChainlinkPriceTargetDigits(address(usdc)) returns (uint256 price) {
+            usdcPrice18Decimals = price;
+        } catch {
+            usdcPrice18Decimals = 1 ether; // default to 1$
+        }
+
+        return (_amount * 10 ** uint256(usdc.decimals())) / usdcPrice18Decimals;
     }
 
     /**
@@ -318,51 +316,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
      */
     function _hasInitialDeposit(address _user) internal view returns (bool) {
         return stabilityPool.deposits(_user).initialValue != 0;
-    }
-
-    /**
-     * @dev Returns the price of USDC in USD in whatever decimals the aggregator uses (usually 8)
-     */
-    function _getUsdcPrice() internal view returns (uint256 price) {
-        AggregatorV3Interface aggregator = AggregatorV3Interface(chainlinkUsdcOracle);
-
-        try aggregator.latestRoundData() returns (uint80, int256 answer, uint256, uint256, uint80) {
-            price = uint256(answer);
-        } catch {
-            price = 10 ** _getUsdcPriceDecimals(); // default to 1$
-        }
-    }
-
-    /**
-     * @dev Returns the decimals the aggregator uses for USDC (usually 8)
-     */
-    function _getUsdcPriceDecimals() internal view returns (uint256) {
-        AggregatorV3Interface aggregator = AggregatorV3Interface(chainlinkUsdcOracle);
-
-        try aggregator.decimals() returns (uint8 decimals) {
-            return decimals;
-        } catch {
-            return 8;
-        }
-    }
-
-    /**
-     * @dev Returns the price of {_collateral} in USD in whatever decimals the aggregator uses (usually 8)
-     * It is meant to revert on failure if the latestRoundData call fails
-     */
-    function _getCollateralPrice(address _collateral) internal view returns (uint256 price) {
-        AggregatorV3Interface aggregator = AggregatorV3Interface(priceFeed.priceAggregator(_collateral));
-        (, int256 answer,,,) = aggregator.latestRoundData();
-        price = uint256(answer);
-    }
-
-    /**
-     * @dev Returns the decimals the aggregator uses for {_collateral} (usually 8)
-     * It is meant to revert on failure if the decimals call fails
-     */
-    function _getCollateralPriceDecimals(address _collateral) internal view returns (uint256 decimals) {
-        AggregatorV3Interface aggregator = AggregatorV3Interface(priceFeed.priceAggregator(_collateral));
-        decimals = uint256(aggregator.decimals());
     }
 
     /**
