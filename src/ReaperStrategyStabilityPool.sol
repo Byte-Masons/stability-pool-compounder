@@ -52,6 +52,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     }
 
     error SequencerDown();
+    error InvalidUsdcToErnExchange(uint256 exchangeEnum);
 
     /**
      * @dev Initializes the strategy. Sets parameters, saves routes, and gives allowances.
@@ -133,6 +134,8 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
                 swapper.swapUniV3(address(usdc), want, usdcBalance, data, exchangeSettings.uniV3Router);
             } else if (usdcToErnExchange == ExchangeType.UniV2) {
                 swapper.swapUniV2(address(usdc), want, usdcBalance, data, exchangeSettings.uniV2Router);
+            } else {
+                revert InvalidUsdcToErnExchange(uint256(usdcToErnExchange));
             }
         }
     }
