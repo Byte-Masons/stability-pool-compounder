@@ -161,7 +161,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         uint256 allocation = 10_000;
         vault.addStrategy(address(wrappedProxy), feeBPS, allocation);
 
-        vm.prank(guardianAddress);
+        vm.prank(superAdminAddress);
         swapper.updateUniV3Quoter(uniV3Router, uniV3Quoter);
 
         vm.prank(wantHolderAddr);
@@ -224,7 +224,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         // We set high timeouts since we do a lot of manual time skipping in tests
         // 2 days should be plenty = 2 * 24 * 60 * 60 = 172800
         // Since our strategy assumes that USDC ~= ERN, we reuse the USDC aggregator for ERN
-        vm.startPrank(guardianAddress);
+        vm.startPrank(superAdminAddress);
         swapper.updateTokenAggregator(wethAddress, 0x13e3Ee699D1909E989722E753853AE30b17e08c5, 172800);
         swapper.updateTokenAggregator(wbtcAddress, 0xD702DD976Fb76Fffc2D3963D037dfDae5b04E593, 172800);
         swapper.updateTokenAggregator(opAddress, 0x0D276FC14719f9292D5C1eA2198673d1f4269246, 172800);

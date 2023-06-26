@@ -361,15 +361,15 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     /**
      * @dev Reverts if the L2 sequencer is down
      */
-    function _revertIfSequencerDown()
-        internal
-        view
-    {
+    function _revertIfSequencerDown() internal view {
         (
-            /*uint80 roundID*/,
+            /*uint80 roundID*/
+            ,
             int256 answer,
-            /*uint256 startedAt*/,
-            /*uint256 updatedAt*/,
+            /*uint256 startedAt*/
+            ,
+            /*uint256 updatedAt*/
+            ,
             /*uint80 answeredInRound*/
         ) = sequencerUptimeFeed.latestRoundData();
 
