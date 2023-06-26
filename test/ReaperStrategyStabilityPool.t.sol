@@ -35,8 +35,10 @@ contract ReaperStrategyStabilityPoolTest is Test {
     address public balVault = 0xBA12222222228d8Ba445958a75a0704d566BF2C8;
     address public uniV3Router = 0xE592427A0AEce92De3Edee1F18E0157C05861564;
     address public uniV3Quoter = 0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6;
+    address public uniV2Router = 0xbeeF000000000000000000000000000000000000; // Any non-0 address when UniV2 router does not exist
     address public veloUsdcErnPool = 0x55624DC97289A19045b4739627BEaEB1E70Ab64c;
     address public chainlinkUsdcOracle = 0x16a9FA2FDa030272Ce99B29CF780dFA30361E0f3;
+    address public sequencerUptimeFeed = 0x371EAD81c9102C9BF4874A9075FFFf170F2Ee389;
 
     address public superAdminAddress = 0x9BC776dBb134Ef9D7014dB1823Cd755Ac5015203;
     address public adminAddress = 0xeb9C9b785aA7818B2EBC8f9842926c4B9f707e4B;
@@ -128,6 +130,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         exchangeSettings.veloRouter = veloRouter;
         exchangeSettings.balVault = balVault;
         exchangeSettings.uniV3Router = uniV3Router;
+        exchangeSettings.uniV2Router = uniV2Router;
 
         ReaperStrategyStabilityPool.Pools memory pools;
         pools.stabilityPool = stabilityPoolAddress;
@@ -148,7 +151,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
             multisigRoles,
             keepers,
             priceFeedAddress,
-            chainlinkUsdcOracle,
+            sequencerUptimeFeed,
             exchangeSettings,
             pools,
             tokens
@@ -158,7 +161,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         uint256 allocation = 10_000;
         vault.addStrategy(address(wrappedProxy), feeBPS, allocation);
 
-        vm.prank(guardianAddress);
+        vm.prank(superAdminAddress);
         swapper.updateUniV3Quoter(uniV3Router, uniV3Quoter);
 
         vm.prank(wantHolderAddr);
@@ -221,7 +224,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         // We set high timeouts since we do a lot of manual time skipping in tests
         // 2 days should be plenty = 2 * 24 * 60 * 60 = 172800
         // Since our strategy assumes that USDC ~= ERN, we reuse the USDC aggregator for ERN
-        vm.startPrank(guardianAddress);
+        vm.startPrank(superAdminAddress);
         swapper.updateTokenAggregator(wethAddress, 0x13e3Ee699D1909E989722E753853AE30b17e08c5, 172800);
         swapper.updateTokenAggregator(wbtcAddress, 0xD702DD976Fb76Fffc2D3963D037dfDae5b04E593, 172800);
         swapper.updateTokenAggregator(opAddress, 0x0D276FC14719f9292D5C1eA2198673d1f4269246, 172800);
@@ -856,6 +859,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
         console.log("opPrice: ");
         console.logInt(opPrice);
 
+        // All usd values must have 18 decimals for comparison.
+        // WETH and OP already have 18 decimals, but we need to scale WBTC.
         uint256 wbtcUsdValue = wbtcAmount * uint256(wbtcPrice) * (10 ** 2);
         uint256 wethUsdValue = wethAmount * uint256(wethPrice) / (10 ** 8);
         uint256 opUsdValue = opAmount * uint256(opPrice) / (10 ** 8);
