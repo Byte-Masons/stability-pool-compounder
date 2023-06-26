@@ -231,6 +231,9 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         (address[] memory assets, uint256[] memory amounts) = stabilityPool.getDepositorCollateralGain(address(this));
         for (uint256 i = 0; i < assets.length; i++) {
             address asset = assets[i];
+            if (asset == address(usdc) || asset == want) {
+                continue;
+            }
             uint256 amount = amounts[i] + IERC20MetadataUpgradeable(asset).balanceOf(address(this));
             usdValueOfCollateralGain += _getUSDEquivalentOfCollateral(asset, amount);
         }
@@ -244,6 +247,9 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         (address[] memory assets, uint256[] memory amounts) = stabilityPool.getDepositorCollateralGain(address(this));
         for (uint256 i = 0; i < assets.length; i++) {
             address asset = assets[i];
+            if (asset == address(usdc) || asset == want) {
+                continue;
+            }
             uint256 amount = amounts[i] + IERC20MetadataUpgradeable(asset).balanceOf(address(this));
             usdValueOfCollateralGain += _getUSDEquivalentOfCollateralUsingPriceFeed(asset, amount);
         }
