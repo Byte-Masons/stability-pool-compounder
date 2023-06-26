@@ -38,6 +38,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         address veloRouter;
         address balVault;
         address uniV3Router;
+        address uniV2Router;
     }
 
     struct Pools {
@@ -77,6 +78,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         require(_exchangeSettings.veloRouter != address(0), "veloRouter is 0 address");
         require(_exchangeSettings.balVault != address(0), "balVault is 0 address");
         require(_exchangeSettings.uniV3Router != address(0), "uniV3Router is 0 address");
+        require(_exchangeSettings.uniV2Router != address(0), "uniV2Router is 0 address");
         require(_pools.stabilityPool != address(0), "stabilityPool is 0 address");
         require(_pools.veloUsdcErnPool != address(0), "veloUsdcErnPool is 0 address");
 
@@ -126,6 +128,8 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
                 swapper.swapVelo(address(usdc), want, usdcBalance, data, exchangeSettings.veloRouter);
             } else if (usdcToErnExchange == ExchangeType.UniV3) {
                 swapper.swapUniV3(address(usdc), want, usdcBalance, data, exchangeSettings.uniV3Router);
+            } else if (usdcToErnExchange == ExchangeType.UniV2) {
+                swapper.swapUniV2(address(usdc), want, usdcBalance, data, exchangeSettings.uniV2Router);
             }
         }
     }

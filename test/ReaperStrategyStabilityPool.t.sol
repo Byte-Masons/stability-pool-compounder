@@ -35,6 +35,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
     address public balVault = 0xBA12222222228d8Ba445958a75a0704d566BF2C8;
     address public uniV3Router = 0xE592427A0AEce92De3Edee1F18E0157C05861564;
     address public uniV3Quoter = 0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6;
+    address public uniV2Router = 0xbeeF000000000000000000000000000000000000; // Any non-0 address when UniV2 router does not exist
     address public veloUsdcErnPool = 0x55624DC97289A19045b4739627BEaEB1E70Ab64c;
     address public chainlinkUsdcOracle = 0x16a9FA2FDa030272Ce99B29CF780dFA30361E0f3;
 
@@ -128,6 +129,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         exchangeSettings.veloRouter = veloRouter;
         exchangeSettings.balVault = balVault;
         exchangeSettings.uniV3Router = uniV3Router;
+        exchangeSettings.uniV2Router = uniV2Router;
 
         ReaperStrategyStabilityPool.Pools memory pools;
         pools.stabilityPool = stabilityPoolAddress;
