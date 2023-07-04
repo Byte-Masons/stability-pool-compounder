@@ -9,6 +9,8 @@ import {IPriceFeed} from "./interfaces/IPriceFeed.sol";
 import {IVault} from "vault-v2/interfaces/IVault.sol";
 import {AggregatorV3Interface} from "vault-v2/interfaces/AggregatorV3Interface.sol";
 import {IVelodromePair} from "./interfaces/IVelodromePair.sol";
+import {IStaticOracle} from "./interfaces/IStaticOracle.sol";
+import {IUniswapV3Pool} from "./interfaces/IUniswapV3Pool.sol";
 import {IERC20MetadataUpgradeable} from "oz-upgradeable/token/ERC20/extensions/IERC20MetadataUpgradeable.sol";
 import {SafeERC20Upgradeable} from "oz-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 import {MathUpgradeable} from "oz-upgradeable/utils/math/MathUpgradeable.sol";
@@ -26,8 +28,11 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     ExchangeSettings public exchangeSettings; // Holds addresses to use Velo, UniV3 and Bal through Swapper
     AggregatorV3Interface public sequencerUptimeFeed;
     IVelodromePair public veloUsdcErnPool;
+    IUniswapV3Pool public uniV3UsdcErnPool;
+    IStaticOracle public uniV3TWAP;
 
     uint256 public constant ETHOS_DECIMALS = 18; // Decimals used by ETHOS
+    uint256 public constant CARDINALITY_PER_MINUTE = 30; // Optimism after bedrock update produces a block every 2 seconds
     uint256 public ernMinAmountOutBPS; // The max allowed slippage when trading in to ERN
     uint256 public compoundingFeeMarginBPS; // How much collateral value is lowered to account for the costs of swapping
     uint256 public veloUsdcErnQuoteGranularity; // How many samples to look at for Velo pool TWAP
@@ -44,6 +49,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     struct Pools {
         address stabilityPool;
         address veloUsdcErnPool;
+        address uniV3UsdcErnPool;
     }
 
     struct Tokens {
@@ -66,6 +72,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         address[] memory _keepers,
         address _priceFeed,
         address _sequencerUptimeFeed,
+        address _uniV3TWAP,
         ExchangeSettings calldata _exchangeSettings,
         Pools calldata _pools,
         Tokens calldata _tokens
@@ -78,12 +85,14 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         require(_priceFeed != address(0), "priceFeed is 0 address");
         require(_tokens.usdc != address(0), "usdc is 0 address");
         require(_sequencerUptimeFeed != address(0), "sequencerUptimeFeed is 0 address");
+        require(_uniV3TWAP != address(0), "uniV3TWAP is 0 address");
         require(_exchangeSettings.veloRouter != address(0), "veloRouter is 0 address");
         require(_exchangeSettings.balVault != address(0), "balVault is 0 address");
         require(_exchangeSettings.uniV3Router != address(0), "uniV3Router is 0 address");
         require(_exchangeSettings.uniV2Router != address(0), "uniV2Router is 0 address");
         require(_pools.stabilityPool != address(0), "stabilityPool is 0 address");
         require(_pools.veloUsdcErnPool != address(0), "veloUsdcErnPool is 0 address");
+        require(_pools.uniV3UsdcErnPool != address(0), "uniV3UsdcErnPool is 0 address");
 
         __ReaperBaseStrategy_init(_vault, _swapper, _tokens.want, _strategists, _multisigRoles, _keepers);
         stabilityPool = IStabilityPool(_pools.stabilityPool);
@@ -95,7 +104,9 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         usdcToErnExchange = ExchangeType.VeloSolid;
 
         sequencerUptimeFeed = AggregatorV3Interface(_sequencerUptimeFeed);
+        uniV3TWAP = IStaticOracle(_uniV3TWAP);
         veloUsdcErnPool = IVelodromePair(_pools.veloUsdcErnPool);
+        uniV3UsdcErnPool = IUniswapV3Pool(_pools.uniV3UsdcErnPool);
         veloUsdcErnQuoteGranularity = 2;
         compoundingFeeMarginBPS = 9950;
     }
@@ -267,6 +278,20 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
                 usdValueOfCollateralGain += _getUSDEquivalentOfCollateralUsingPriceFeed(asset, amount);
             }
         }
+    }
+
+    function getErnAmountForUsdcUniV3(uint128 _baseAmount, uint32 _period) public returns (uint256 ernAmount) {
+        uint16 targetCardinality = uint16((_period * CARDINALITY_PER_MINUTE) / 60) + 1;
+        (, , , , uint16 currentCardinality, , ) = uniV3UsdcErnPool.slot0();
+
+        if (currentCardinality < targetCardinality) {
+            uniV3UsdcErnPool.increaseObservationCardinalityNext(targetCardinality);
+        }
+
+        address[] memory pools = new address[](1);
+        pools[0] = address(uniV3UsdcErnPool);
+        uint256 quoteAmount = uniV3TWAP.quoteSpecificPoolsWithTimePeriod(_baseAmount, address(usdc), want, pools, _period);
+        return quoteAmount;
     }
 
     /**

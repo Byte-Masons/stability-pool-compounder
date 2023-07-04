@@ -15,6 +15,7 @@ import "src/interfaces/ITroveManager.sol";
 import "src/interfaces/IStabilityPool.sol";
 import "src/interfaces/IVelodromePair.sol";
 import "src/interfaces/IAggregatorAdmin.sol";
+import {IStaticOracle} from "src/interfaces/IStaticOracle.sol";
 import {IERC20Mintable} from "src/interfaces/IERC20Mintable.sol";
 import {ERC1967Proxy} from "oz/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC20Upgradeable} from "oz-upgradeable/token/ERC20/IERC20Upgradeable.sol";
@@ -37,8 +38,10 @@ contract ReaperStrategyStabilityPoolTest is Test {
     address public uniV3Quoter = 0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6;
     address public uniV2Router = 0xbeeF000000000000000000000000000000000000; // Any non-0 address when UniV2 router does not exist
     address public veloUsdcErnPool = 0x55624DC97289A19045b4739627BEaEB1E70Ab64c;
+    address public uniV3UsdcErnPool = 0x958724A4a9a6f89aEf1210459839F4C27F2C6B03;
     address public chainlinkUsdcOracle = 0x16a9FA2FDa030272Ce99B29CF780dFA30361E0f3;
     address public sequencerUptimeFeed = 0x371EAD81c9102C9BF4874A9075FFFf170F2Ee389;
+    address public uniV3TWAP = 0xB210CE856631EeEB767eFa666EC7C1C57738d438;
 
     address public superAdminAddress = 0x9BC776dBb134Ef9D7014dB1823Cd755Ac5015203;
     address public adminAddress = 0xeb9C9b785aA7818B2EBC8f9842926c4B9f707e4B;
@@ -109,7 +112,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
     function setUp() public {
         // Forking
         optimismFork = vm.createSelectFork(
-            "https://late-fragrant-rain.optimism.quiknode.pro/08eedcb171832b45c4961c9ff1392491e9b4cfaf/", 105252830
+            "https://late-fragrant-rain.optimism.quiknode.pro/08eedcb171832b45c4961c9ff1392491e9b4cfaf/", 106357370
         );
         assertEq(vm.activeFork(), optimismFork);
 
@@ -135,6 +138,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         ReaperStrategyStabilityPool.Pools memory pools;
         pools.stabilityPool = stabilityPoolAddress;
         pools.veloUsdcErnPool = veloUsdcErnPool;
+        pools.uniV3UsdcErnPool = uniV3UsdcErnPool;
 
         address[] memory usdcErnPath = new address[](2);
         usdcErnPath[0] = usdcAddress;
@@ -152,6 +156,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
             keepers,
             priceFeedAddress,
             sequencerUptimeFeed,
+            uniV3TWAP,
             exchangeSettings,
             pools,
             tokens
@@ -974,11 +979,222 @@ contract ReaperStrategyStabilityPoolTest is Test {
         console.log("priceQuote10: ", priceQuote10 / 1_000_000_000);
     }
 
+    function testUniV3TWAPMultipleSwaps() public {
+        uint128 usdcUnit = 10 ** 6;
+        uint32 period = 120;
+        uint256 timeToSkip = 20;
+        
+        uint24[] memory feeTiers = new uint24[](1);
+        feeTiers[0] = 3000;
+
+        uint256 usdcToDump = 1 * usdcUnit;
+        deal({token: usdcAddress, to: address(this), give: usdcToDump * 100});
+
+        console.log("calling _swapUsdcToErnUniV3");
+        _swapUsdcToErnUniV3(usdcToDump);
+        _skipBlockAndTime(timeToSkip);
+
+        uint256 priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
+        uint256 priceQuoteSpot = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, 0);
+        console.log("priceQuote1: ", priceQuote);
+        console.log("priceQuoteSpot1: ", priceQuoteSpot);
+
+        _swapUsdcToErnUniV3(usdcToDump);
+        _skipBlockAndTime(timeToSkip);
+
+        priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
+        priceQuoteSpot = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, 0);
+        console.log("priceQuote2: ", priceQuote);
+        console.log("priceQuoteSpot2: ", priceQuoteSpot);
+        
+        _swapUsdcToErnUniV3(usdcToDump);
+        _skipBlockAndTime(timeToSkip);
+
+        priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
+        priceQuoteSpot = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, 0);
+        console.log("priceQuote3: ", priceQuote);
+        console.log("priceQuoteSpot3: ", priceQuoteSpot);
+
+        _swapUsdcToErnUniV3(usdcToDump);
+        _skipBlockAndTime(timeToSkip);
+
+        priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
+        priceQuoteSpot = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, 0);
+        console.log("priceQuote4: ", priceQuote);
+        console.log("priceQuoteSpot4: ", priceQuoteSpot);
+
+        _swapUsdcToErnUniV3(usdcToDump);
+        _skipBlockAndTime(timeToSkip);
+
+        priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
+        priceQuoteSpot = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, 0);
+        console.log("priceQuote5: ", priceQuote);
+        console.log("priceQuoteSpot5: ", priceQuoteSpot);
+
+        _swapUsdcToErnUniV3(usdcToDump);
+        _skipBlockAndTime(timeToSkip);
+
+        priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
+        priceQuoteSpot = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, 0);
+        console.log("priceQuote6: ", priceQuote);
+        console.log("priceQuoteSpot6: ", priceQuoteSpot);
+
+        _swapUsdcToErnUniV3(usdcToDump);
+        _skipBlockAndTime(timeToSkip);
+
+        priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
+        priceQuoteSpot = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, 0);
+        console.log("priceQuote7: ", priceQuote);
+        console.log("priceQuoteSpot7: ", priceQuoteSpot);
+
+        _swapUsdcToErnUniV3(usdcToDump);
+        _skipBlockAndTime(timeToSkip);
+
+        priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
+        priceQuoteSpot = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, 0);
+        console.log("priceQuote8: ", priceQuote);
+        console.log("priceQuoteSpot8: ", priceQuoteSpot);
+
+        _swapUsdcToErnUniV3(usdcToDump);
+        _skipBlockAndTime(timeToSkip);
+
+        priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
+        priceQuoteSpot = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, 0);
+        console.log("priceQuote9: ", priceQuote);
+        console.log("priceQuoteSpot9: ", priceQuoteSpot);
+    }
+
+    function testUniV3TWAPSingleSwap() public {
+        uint128 usdcUnit = 10 ** 6;
+        uint32 period = 10;
+        
+        uint24[] memory feeTiers = new uint24[](1);
+        feeTiers[0] = 3000;
+
+        uint256 usdcToDump = 10 * usdcUnit;
+        uint256 ernToDump = 10 * 1 ether;
+        deal({token: usdcAddress, to: address(this), give: usdcToDump * 100});
+        deal({token: wantAddress, to: address(this), give: ernToDump * 100});
+
+        // _skipBlockAndTime(1);
+        // // Fill up TWAP slots
+        // for (uint256 index = 0; index < period / 2 + 1; index++) {
+        //     if (index % 2 == 0) {
+        //         _swapUsdcToErnUniV3(usdcUnit);
+        //         // console.log("_swapUsdcToErnUniV3");
+        //     } else {
+        //         _swapErnToUsdcUniV3(1 ether);
+        //         // console.log("_swapErnToUsdcUniV3");
+        //     }
+        //     _skipBlockAndTime(1);
+        // }
+
+        uint256 priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
+        
+        console.log("priceQuote: ", priceQuote);
+        
+        // console.log("calling _swapUsdcToErnUniV3");
+        // _swapUsdcToErnUniV3(usdcToDump);
+        // _skipBlockAndTime(1);
+
+        // priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
+        // uint256 priceQuoteHalf = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period / 2);
+        // uint256 priceQuoteQuarter = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period / 4);
+        // uint256 priceQuoteEigth = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period / 8);
+        // uint256 priceQuoteSixteenth = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period / 16);
+        // uint256 priceQuoteSpot = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, 0);
+        // priceQuoteSpot = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, 0);
+        // console.log("priceQuote1: ", priceQuote);
+        // console.log("priceQuoteHalf: ", priceQuoteHalf);
+        // console.log("priceQuoteQuarter: ", priceQuoteQuarter);
+        // console.log("priceQuoteEigth: ", priceQuoteEigth);
+        // console.log("priceQuoteSixteenth: ", priceQuoteSixteenth);
+        // console.log("priceQuoteSpot1: ", priceQuoteSpot);
+        
+    }
+
     function liquidateTroves(address asset) internal {
         ITroveManager(troveManager).liquidateTroves(asset, 100);
     }
 
     function _toWant(uint256 amount) internal returns (uint256) {
         return amount * (10 ** want.decimals());
+    }
+
+    function _swapUsdcToErnUniV3(uint256 _amount)
+        internal
+        returns (uint256 amountOut)
+    {
+        return _swapUniV3(_amount, usdcAddress, wantAddress);
+    }
+
+    function _swapErnToUsdcUniV3(uint256 _amount)
+        internal
+        returns (uint256 amountOut)
+    {
+        return _swapUniV3(_amount, wantAddress, usdcAddress);
+    }
+
+    function _swapUniV3(uint256 _amount, address token0, address token1)
+        internal
+        returns (uint256 amountOut)
+    {
+        if (_amount == 0) {
+            return 0;
+        }
+
+        address[] memory path = new address[](2);
+        path[0] = token0;
+        path[1] = token1;
+
+        uint24[] memory fees = new uint24[](1);
+        fees[0] = 3000;
+
+        uint256 minAmountOut = 0;
+
+        bytes memory pathBytes = _encodePathV3(path, fees);
+        TransferHelper.safeApprove(path[0], uniV3Router, _amount);
+        ISwapRouter.ExactInputParams memory params = ISwapRouter.ExactInputParams({
+            path: pathBytes,
+            recipient: address(this),
+            deadline: block.timestamp,
+            amountIn: _amount,
+            amountOutMinimum: minAmountOut
+        });
+        // console.log("calling exactInput");
+        uint256 amountOut = ISwapRouter(uniV3Router).exactInput(params);
+    }
+
+    /**
+     * Encode path / fees to bytes in the format expected by UniV3 router
+     *
+     * @param _path          List of token address to swap via (starting with input token)
+     * @param _fees          List of fee levels identifying the pools to swap via.
+     *                       (_fees[0] refers to pool between _path[0] and _path[1])
+     *
+     * @return encodedPath   Encoded path to be forwared to uniV3 router
+     */
+    function _encodePathV3(address[] memory _path, uint24[] memory _fees)
+        private
+        pure
+        returns (bytes memory encodedPath)
+    {
+        encodedPath = abi.encodePacked(_path[0]);
+        for (uint256 i = 0; i < _fees.length; i++) {
+            encodedPath = abi.encodePacked(encodedPath, _fees[i], _path[i + 1]);
+        }
+    }
+
+    function _skipBlockAndTime(uint256 _amount) private {
+        console.log("_skipBlockAndTime");
+        
+        // console.log("block.timestamp: ", block.timestamp);
+        // skip(_amount * 2);
+        // console.log("block.timestamp: ", block.timestamp);
+
+        // console.log("block.number: ", block.number);
+        // vm.roll(block.number + _amount);
+        // console.log("block.number: ", block.number);
+        
     }
 }
