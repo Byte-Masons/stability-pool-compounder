@@ -32,11 +32,12 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     IStaticOracle public uniV3TWAP;
 
     uint256 public constant ETHOS_DECIMALS = 18; // Decimals used by ETHOS
-    uint256 public constant CARDINALITY_PER_MINUTE = 30; // Optimism after bedrock update produces a block every 2 seconds
+    uint32 public constant CARDINALITY_PER_MINUTE = 30; // Optimism after bedrock update produces a block every 2 seconds
     uint256 public ernMinAmountOutBPS; // The max allowed slippage when trading in to ERN
     uint256 public compoundingFeeMarginBPS; // How much collateral value is lowered to account for the costs of swapping
     uint256 public veloUsdcErnQuoteGranularity; // How many samples to look at for Velo pool TWAP
-
+    uint32 public uniV3TWAPPeriod; // How many seconds the uniV3 TWAP will look at
+    TWAP public currentUsdcErnTWAP; // Which exchange is used to value ERN in terms of USDC
     ExchangeType public usdcToErnExchange; // Controls which exchange is used to swap USDC to ERN
 
     struct ExchangeSettings {
@@ -57,8 +58,15 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         address usdc;
     }
 
+    enum TWAP {
+        UniV3,
+        VeloV2,
+        Beethoven
+    }
+
     error SequencerDown();
     error InvalidUsdcToErnExchange(uint256 exchangeEnum);
+    error InvalidUsdcToErnTWAP(uint256 twapEnum);
 
     /**
      * @dev Initializes the strategy. Sets parameters, saves routes, and gives allowances.
@@ -75,7 +83,8 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         address _uniV3TWAP,
         ExchangeSettings calldata _exchangeSettings,
         Pools calldata _pools,
-        Tokens calldata _tokens
+        Tokens calldata _tokens,
+        TWAP _currentUsdcErnTWAP
     ) public initializer {
         require(_vault != address(0), "vault is 0 address");
         require(_swapper != address(0), "swapper is 0 address");
@@ -109,6 +118,8 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         uniV3UsdcErnPool = IUniswapV3Pool(_pools.uniV3UsdcErnPool);
         veloUsdcErnQuoteGranularity = 2;
         compoundingFeeMarginBPS = 9950;
+        currentUsdcErnTWAP = _currentUsdcErnTWAP;
+        uniV3TWAPPeriod = 2;
     }
 
     function _liquidateAllPositions() internal override returns (uint256 amountFreed) {
@@ -131,7 +142,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     function _afterHarvestSwapSteps() internal override {
         uint256 usdcBalance = usdc.balanceOf(address(this));
         if (usdcBalance != 0) {
-            uint256 expectedErnAmount = veloUsdcErnPool.quote(address(usdc), usdcBalance, veloUsdcErnQuoteGranularity);
+            uint256 expectedErnAmount = _getErnAmountForUsdc(usdcBalance);
             uint256 minAmountOut = (expectedErnAmount * ernMinAmountOutBPS) / PERCENT_DIVISOR;
             MinAmountOutData memory data =
                 MinAmountOutData({kind: MinAmountOutKind.Absolute, absoluteOrBPSValue: minAmountOut});
@@ -241,7 +252,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         uint256 usdcValueOfCollateral = _getUsdcEquivalentOfUSD(_usdValueOfCollateralGain);
         uint256 usdcBalance = usdc.balanceOf(address(this));
         uint256 totalUsdcValue = usdcBalance + usdcValueOfCollateral;
-        ernValueOfCollateral = veloUsdcErnPool.quote(address(usdc), totalUsdcValue, veloUsdcErnQuoteGranularity);
+        ernValueOfCollateral = _getErnAmountForUsdc(totalUsdcValue);
     }
 
     /**
@@ -280,12 +291,25 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         }
     }
 
-    function getErnAmountForUsdcUniV3(uint128 _baseAmount, uint32 _period) public returns (uint256 ernAmount) {
-        uint16 targetCardinality = uint16((_period * CARDINALITY_PER_MINUTE) / 60) + 1;
+    function _getErnAmountForUsdc(uint256 _usdcAmount) internal view returns (uint256 expectedErnAmount) {
+        if (_usdcAmount != 0) {
+            if (currentUsdcErnTWAP == TWAP.VeloV2) {
+                expectedErnAmount = veloUsdcErnPool.quote(address(usdc), _usdcAmount, veloUsdcErnQuoteGranularity);
+            } else if (currentUsdcErnTWAP == TWAP.UniV3) {
+                expectedErnAmount = getErnAmountForUsdcUniV3(uint128(_usdcAmount), uniV3TWAPPeriod);
+            } else {
+                revert InvalidUsdcToErnTWAP(uint256(currentUsdcErnTWAP));
+            }
+        }
+    }
+
+    function getErnAmountForUsdcUniV3(uint128 _baseAmount, uint32 _period) public view returns (uint256 ernAmount) {
         (, , , , uint16 currentCardinality, , ) = uniV3UsdcErnPool.slot0();
 
-        if (currentCardinality < targetCardinality) {
-            uniV3UsdcErnPool.increaseObservationCardinalityNext(targetCardinality);
+        uint32 maxPeriod = uint32(currentCardinality) * 60 / CARDINALITY_PER_MINUTE;
+
+        if ( _period > maxPeriod) {
+             _period = maxPeriod;
         }
 
         address[] memory pools = new address[](1);
@@ -447,5 +471,21 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
             "Invalid compoundingFeeMarginBPS value"
         );
         compoundingFeeMarginBPS = _compoundingFeeMarginBPS;
+    }
+
+    function updateUniV3TWAPPeriod(uint32 _uniV3TWAPPeriod) external {
+        _atLeastRole(GUARDIAN);
+        (, , , , uint16 currentCardinality, , ) = uniV3UsdcErnPool.slot0();
+        uint32 maxPeriod = uint32(currentCardinality) * 60 / CARDINALITY_PER_MINUTE;
+        require(
+            _uniV3TWAPPeriod <= maxPeriod,
+            "Pool needs a higher cardinality to support the period"
+        );
+        uniV3TWAPPeriod = _uniV3TWAPPeriod;
+    }
+
+    function updateCurrentUsdcErnTWAP(TWAP _currentUsdcErnTWAP) external {
+        _atLeastRole(GUARDIAN);
+        currentUsdcErnTWAP = _currentUsdcErnTWAP;
     }
 }

@@ -148,6 +148,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
         tokens.want = wantAddress;
         tokens.usdc = usdcAddress;
 
+        ReaperStrategyStabilityPool.TWAP currentUsdcErnTWAP = ReaperStrategyStabilityPool.TWAP.UniV3;
+
         wrappedProxy.initialize(
             address(vault),
             address(swapper),
@@ -159,7 +161,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
             uniV3TWAP,
             exchangeSettings,
             pools,
-            tokens
+            tokens,
+            currentUsdcErnTWAP
         );
 
         uint256 feeBPS = 500;
@@ -702,8 +705,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
         MockAggregator mockChainlink2 = new MockAggregator();
         mockChainlink2.setPrevRoundId(2);
         mockChainlink2.setLatestRoundId(3);
-        mockChainlink2.setPrice(22_000 * 10 ** 8);
-        mockChainlink2.setPrevPrice(22_000 * 10 ** 8);
+        mockChainlink2.setPrice(25_000 * 10 ** 8);
+        mockChainlink2.setPrevPrice(25_000 * 10 ** 8);
         mockChainlink2.setUpdateTime(block.timestamp);
 
         vm.startPrank(priceFeedOwnerAddress);
@@ -733,7 +736,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         console.log("testVeloTWAP");
         uint256 iterations = 20;
         IVelodromePair pool = IVelodromePair(veloUsdcErnPool);
-        uint256 currentPrice = pool.current(address(want), 1 ether);
+        uint256 currentPrice = pool.getAmountOut(1 ether, address(want));
         console.log("currentPrice: ", currentPrice);
         for (uint256 index = 1; index < iterations; index++) {
             uint256 currentPriceQuote = pool.quote(address(want), 1 ether, index);
@@ -758,7 +761,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         skip(timeToSkip);
         router.swapExactTokensForTokens(usdcUnit, minAmountOut, routes, dumpourBob, block.timestamp);
 
-        uint256 dumpedPrice = pool.current(address(want), 1 ether);
+        uint256 dumpedPrice = pool.getAmountOut(1 ether, address(want));
         console.log("dumpedPrice: ", dumpedPrice);
         for (uint256 index = 1; index < iterations; index++) {
             uint256 dumpedPriceQuote = pool.quote(address(want), 1 ether, index);
@@ -798,8 +801,18 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
         IVelodromePair pool = IVelodromePair(veloUsdcErnPool);
         uint256 granularity = wrappedProxy.veloUsdcErnQuoteGranularity();
-        uint256 priceQuote = pool.quote(usdcAddress, usdcAmount, granularity);
-        console.log("priceQuote: ", priceQuote);
+
+        ReaperStrategyStabilityPool.TWAP currentTWAP = wrappedProxy.currentUsdcErnTWAP();
+
+        uint256 priceQuote;
+        if (currentTWAP == ReaperStrategyStabilityPool.TWAP.UniV3) {
+            address[] memory pools = new address[](1);
+            pools[0] = address(uniV3UsdcErnPool);
+            priceQuote = IStaticOracle(uniV3TWAP).quoteSpecificPoolsWithTimePeriod(uint128(usdcAmount), usdcAddress, wantAddress, pools, 2);
+        } else if (currentTWAP == ReaperStrategyStabilityPool.TWAP.VeloV2) {
+            priceQuote =
+                pool.quote(usdcAddress, usdcAmount, granularity);
+        }
         // Values should be the same because the usdc balance will be valued
         // using the Velo TWAP
         assertEq(valueInCollateralAfter, priceQuote);
@@ -889,8 +902,17 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
         // IVelodromePair pool = IVelodromePair(veloUsdcErnPool);
         // uint256 granularity = wrappedProxy.veloUsdcErnQuoteGranularity();
-        uint256 ernAmount =
-            IVelodromePair(veloUsdcErnPool).quote(usdcAddress, usdcAmount, wrappedProxy.veloUsdcErnQuoteGranularity());
+        ReaperStrategyStabilityPool.TWAP currentTWAP = wrappedProxy.currentUsdcErnTWAP();
+        console.log("currentTWAP: ", uint256(currentTWAP));
+        uint256 ernAmount;
+        if (currentTWAP == ReaperStrategyStabilityPool.TWAP.UniV3) {
+            address[] memory pools = new address[](1);
+            pools[0] = address(uniV3UsdcErnPool);
+            ernAmount = IStaticOracle(uniV3TWAP).quoteSpecificPoolsWithTimePeriod(uint128(usdcAmount), usdcAddress, wantAddress, pools, 2);
+        } else if (currentTWAP == ReaperStrategyStabilityPool.TWAP.VeloV2) {
+            ernAmount =
+                IVelodromePair(veloUsdcErnPool).quote(usdcAddress, usdcAmount, wrappedProxy.veloUsdcErnQuoteGranularity());
+        }
         uint256 wantValueInCollateral = wrappedProxy.getERNValueOfCollateralGain();
 
         console.log("ernAmount: ", ernAmount);
@@ -899,7 +921,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
         uint256 compoundingFeeMarginBPS = wrappedProxy.compoundingFeeMarginBPS();
         uint256 expectedPoolIncrease = ernAmount * compoundingFeeMarginBPS / BPS_UNIT;
-        //console.log("poolBalanceIncrease: ", poolBalanceAfter - poolBalanceBefore);
+        // console.log("poolBalanceIncrease: ", poolBalanceAfter - poolBalanceBefore);
         // console.log("expectedPoolIncrease: ", expectedPoolIncrease);
         // assertEq(poolBalanceAfter - poolBalanceBefore, expectedPoolIncrease);
     }
@@ -951,33 +973,33 @@ contract ReaperStrategyStabilityPoolTest is Test {
         assertApproxEqRel(valueInCollateral, expectedValueInCollateral, 0.005e18);
     }
 
-    function testVeloTWAPQuoteAmounts() public {
-        uint256 usdcUnit = 10 ** 6;
+    // function testVeloTWAPQuoteAmounts() public {
+    //     uint256 usdcUnit = 10 ** 6;
 
-        IVelodromePair pool = IVelodromePair(veloUsdcErnPool);
-        uint256 granularity = wrappedProxy.veloUsdcErnQuoteGranularity();
+    //     IVelodromePair pool = IVelodromePair(veloUsdcErnPool);
+    //     uint256 granularity = wrappedProxy.veloUsdcErnQuoteGranularity();
 
-        uint256 priceQuote1 = pool.quote(usdcAddress, usdcUnit, granularity);
-        uint256 priceQuote2 = pool.quote(usdcAddress, usdcUnit * 10, granularity);
-        uint256 priceQuote3 = pool.quote(usdcAddress, usdcUnit * 100, granularity);
-        uint256 priceQuote4 = pool.quote(usdcAddress, usdcUnit * 1000, granularity);
-        uint256 priceQuote5 = pool.quote(usdcAddress, usdcUnit * 10_000, granularity);
-        uint256 priceQuote6 = pool.quote(usdcAddress, usdcUnit * 100_000, granularity);
-        uint256 priceQuote7 = pool.quote(usdcAddress, usdcUnit * 1_000_000, granularity);
-        uint256 priceQuote8 = pool.quote(usdcAddress, usdcUnit * 10_000_000, granularity);
-        uint256 priceQuote9 = pool.quote(usdcAddress, usdcUnit * 100_000_000, granularity);
-        uint256 priceQuote10 = pool.quote(usdcAddress, usdcUnit * 1_000_000_000, granularity);
-        console.log("priceQuote1: ", priceQuote1);
-        console.log("priceQuote2: ", priceQuote2 / 10);
-        console.log("priceQuote3: ", priceQuote3 / 100);
-        console.log("priceQuote4: ", priceQuote4 / 1000);
-        console.log("priceQuote5: ", priceQuote5 / 10_000);
-        console.log("priceQuote6: ", priceQuote6 / 100_000);
-        console.log("priceQuote7: ", priceQuote7 / 1_000_000);
-        console.log("priceQuote8: ", priceQuote8 / 10_000_000);
-        console.log("priceQuote9: ", priceQuote9 / 100_000_000);
-        console.log("priceQuote10: ", priceQuote10 / 1_000_000_000);
-    }
+    //     uint256 priceQuote1 = pool.quote(usdcAddress, usdcUnit, granularity);
+    //     uint256 priceQuote2 = pool.quote(usdcAddress, usdcUnit * 10, granularity);
+    //     uint256 priceQuote3 = pool.quote(usdcAddress, usdcUnit * 100, granularity);
+    //     uint256 priceQuote4 = pool.quote(usdcAddress, usdcUnit * 1000, granularity);
+    //     uint256 priceQuote5 = pool.quote(usdcAddress, usdcUnit * 10_000, granularity);
+    //     uint256 priceQuote6 = pool.quote(usdcAddress, usdcUnit * 100_000, granularity);
+    //     uint256 priceQuote7 = pool.quote(usdcAddress, usdcUnit * 1_000_000, granularity);
+    //     uint256 priceQuote8 = pool.quote(usdcAddress, usdcUnit * 10_000_000, granularity);
+    //     uint256 priceQuote9 = pool.quote(usdcAddress, usdcUnit * 100_000_000, granularity);
+    //     uint256 priceQuote10 = pool.quote(usdcAddress, usdcUnit * 1_000_000_000, granularity);
+    //     console.log("priceQuote1: ", priceQuote1);
+    //     console.log("priceQuote2: ", priceQuote2 / 10);
+    //     console.log("priceQuote3: ", priceQuote3 / 100);
+    //     console.log("priceQuote4: ", priceQuote4 / 1000);
+    //     console.log("priceQuote5: ", priceQuote5 / 10_000);
+    //     console.log("priceQuote6: ", priceQuote6 / 100_000);
+    //     console.log("priceQuote7: ", priceQuote7 / 1_000_000);
+    //     console.log("priceQuote8: ", priceQuote8 / 10_000_000);
+    //     console.log("priceQuote9: ", priceQuote9 / 100_000_000);
+    //     console.log("priceQuote10: ", priceQuote10 / 1_000_000_000);
+    // }
 
     function testUniV3TWAPMultipleSwaps() public {
         uint128 usdcUnit = 10 ** 6;
@@ -1066,7 +1088,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
     function testUniV3TWAPSingleSwap() public {
         uint128 usdcUnit = 10 ** 6;
-        uint32 period = 10;
+        uint32 period = 200;
         
         uint24[] memory feeTiers = new uint24[](1);
         feeTiers[0] = 3000;
