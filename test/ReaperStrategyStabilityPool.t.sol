@@ -37,7 +37,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
     address public uniV3Router = 0xE592427A0AEce92De3Edee1F18E0157C05861564;
     address public uniV3Quoter = 0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6;
     address public uniV2Router = 0xbeeF000000000000000000000000000000000000; // Any non-0 address when UniV2 router does not exist
-    address public veloUsdcErnPool = 0x55624DC97289A19045b4739627BEaEB1E70Ab64c;
+    address public veloUsdcErnPool = 0x5e4A183Fa83C52B1c55b11f2682f6a8421206633;
     address public uniV3UsdcErnPool = 0x958724A4a9a6f89aEf1210459839F4C27F2C6B03;
     address public chainlinkUsdcOracle = 0x16a9FA2FDa030272Ce99B29CF780dFA30361E0f3;
     address public sequencerUptimeFeed = 0x371EAD81c9102C9BF4874A9075FFFf170F2Ee389;
