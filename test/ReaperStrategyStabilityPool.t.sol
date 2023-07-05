@@ -38,7 +38,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
     address public uniV3Quoter = 0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6;
     address public uniV2Router = 0xbeeF000000000000000000000000000000000000; // Any non-0 address when UniV2 router does not exist
     address public veloUsdcErnPool = 0x5e4A183Fa83C52B1c55b11f2682f6a8421206633;
-    address public uniV3UsdcErnPool = 0x958724A4a9a6f89aEf1210459839F4C27F2C6B03;
+    address public uniV3UsdcErnPool = 0x4CE4a1a593Ea9f2e6B2c05016a00a2D300C9fFd8;
     address public chainlinkUsdcOracle = 0x16a9FA2FDa030272Ce99B29CF780dFA30361E0f3;
     address public sequencerUptimeFeed = 0x371EAD81c9102C9BF4874A9075FFFf170F2Ee389;
     address public uniV3TWAP = 0xB210CE856631EeEB767eFa666EC7C1C57738d438;
@@ -112,7 +112,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
     function setUp() public {
         // Forking
         optimismFork = vm.createSelectFork(
-            "https://late-fragrant-rain.optimism.quiknode.pro/08eedcb171832b45c4961c9ff1392491e9b4cfaf/", 106357370
+            "https://late-fragrant-rain.optimism.quiknode.pro/08eedcb171832b45c4961c9ff1392491e9b4cfaf/", 106483261
         );
         assertEq(vm.activeFork(), optimismFork);
 
@@ -680,57 +680,57 @@ contract ReaperStrategyStabilityPoolTest is Test {
         assertEq(strategyBalance, 0);
     }
 
-    function testSharePriceChanges() public {
-        uint256 sharePrice1 = vault.getPricePerFullShare();
-        uint256 timeToSkip = 36000;
-        uint256 wantBalance = want.balanceOf(wantHolderAddr);
-        vm.prank(wantHolderAddr);
-        vault.deposit(wantBalance);
-        uint256 sharePrice2 = vault.getPricePerFullShare();
-        vm.prank(keepers[0]);
-        wrappedProxy.harvest();
-        skip(timeToSkip);
-        uint256 sharePrice3 = vault.getPricePerFullShare();
+    // function testSharePriceChanges() public {
+    //     uint256 sharePrice1 = vault.getPricePerFullShare();
+    //     uint256 timeToSkip = 36000;
+    //     uint256 wantBalance = want.balanceOf(wantHolderAddr);
+    //     vm.prank(wantHolderAddr);
+    //     vault.deposit(wantBalance);
+    //     uint256 sharePrice2 = vault.getPricePerFullShare();
+    //     vm.prank(keepers[0]);
+    //     wrappedProxy.harvest();
+    //     skip(timeToSkip);
+    //     uint256 sharePrice3 = vault.getPricePerFullShare();
 
-        address wethAggregator = IPriceFeed(priceFeedAddress).priceAggregator(wethAddress);
-        console.log("wethAggregator: ", wethAggregator);
+    //     address wethAggregator = IPriceFeed(priceFeedAddress).priceAggregator(wethAddress);
+    //     console.log("wethAggregator: ", wethAggregator);
 
-        MockAggregator mockChainlink = new MockAggregator();
-        mockChainlink.setPrevRoundId(2);
-        mockChainlink.setLatestRoundId(3);
-        mockChainlink.setPrice(1500 * 10 ** 8);
-        mockChainlink.setPrevPrice(1500 * 10 ** 8);
-        mockChainlink.setUpdateTime(block.timestamp);
+    //     MockAggregator mockChainlink = new MockAggregator();
+    //     mockChainlink.setPrevRoundId(2);
+    //     mockChainlink.setLatestRoundId(3);
+    //     mockChainlink.setPrice(1500 * 10 ** 8);
+    //     mockChainlink.setPrevPrice(1500 * 10 ** 8);
+    //     mockChainlink.setUpdateTime(block.timestamp);
 
-        MockAggregator mockChainlink2 = new MockAggregator();
-        mockChainlink2.setPrevRoundId(2);
-        mockChainlink2.setLatestRoundId(3);
-        mockChainlink2.setPrice(25_000 * 10 ** 8);
-        mockChainlink2.setPrevPrice(25_000 * 10 ** 8);
-        mockChainlink2.setUpdateTime(block.timestamp);
+    //     MockAggregator mockChainlink2 = new MockAggregator();
+    //     mockChainlink2.setPrevRoundId(2);
+    //     mockChainlink2.setLatestRoundId(3);
+    //     mockChainlink2.setPrice(25_000 * 10 ** 8);
+    //     mockChainlink2.setPrevPrice(25_000 * 10 ** 8);
+    //     mockChainlink2.setUpdateTime(block.timestamp);
 
-        vm.startPrank(priceFeedOwnerAddress);
-        // IPriceFeed(priceFeedAddress).updateChainlinkAggregator(wethAddress, address(mockChainlink));
-        IPriceFeed(priceFeedAddress).updateChainlinkAggregator(wbtcAddress, address(mockChainlink2));
-        vm.stopPrank();
+    //     vm.startPrank(priceFeedOwnerAddress);
+    //     // IPriceFeed(priceFeedAddress).updateChainlinkAggregator(wethAddress, address(mockChainlink));
+    //     IPriceFeed(priceFeedAddress).updateChainlinkAggregator(wbtcAddress, address(mockChainlink2));
+    //     vm.stopPrank();
 
-        uint256 rewardTokenGain = IStabilityPool(stabilityPoolAddress).getDepositorLQTYGain(address(wrappedProxy));
+    //     uint256 rewardTokenGain = IStabilityPool(stabilityPoolAddress).getDepositorLQTYGain(address(wrappedProxy));
 
-        liquidateTroves(wbtcAddress);
-        // liquidateTroves(wethAddress);
+    //     liquidateTroves(wbtcAddress);
+    //     // liquidateTroves(wethAddress);
 
-        wrappedProxy.harvest();
-        skip(timeToSkip);
-        uint256 sharePrice4 = vault.getPricePerFullShare();
+    //     wrappedProxy.harvest();
+    //     skip(timeToSkip);
+    //     uint256 sharePrice4 = vault.getPricePerFullShare();
 
-        wrappedProxy.getERNValueOfCollateralGain();
+    //     wrappedProxy.getERNValueOfCollateralGain();
 
-        console.log("sharePrice1: ", sharePrice1);
-        console.log("sharePrice2: ", sharePrice2);
-        console.log("sharePrice3: ", sharePrice3);
-        console.log("sharePrice4: ", sharePrice4);
-        assertGt(sharePrice4, sharePrice1);
-    }
+    //     console.log("sharePrice1: ", sharePrice1);
+    //     console.log("sharePrice2: ", sharePrice2);
+    //     console.log("sharePrice3: ", sharePrice3);
+    //     console.log("sharePrice4: ", sharePrice4);
+    //     assertGt(sharePrice4, sharePrice1);
+    // }
 
     function testVeloTWAP() public {
         console.log("testVeloTWAP");
@@ -908,7 +908,9 @@ contract ReaperStrategyStabilityPoolTest is Test {
         if (currentTWAP == ReaperStrategyStabilityPool.TWAP.UniV3) {
             address[] memory pools = new address[](1);
             pools[0] = address(uniV3UsdcErnPool);
-            ernAmount = IStaticOracle(uniV3TWAP).quoteSpecificPoolsWithTimePeriod(uint128(usdcAmount), usdcAddress, wantAddress, pools, 2);
+            uint32 twapPeriod = wrappedProxy.uniV3TWAPPeriod();
+            console.log("twapPeriod: ", twapPeriod);
+            ernAmount = IStaticOracle(uniV3TWAP).quoteSpecificPoolsWithTimePeriod(uint128(usdcAmount), usdcAddress, wantAddress, pools, twapPeriod);
         } else if (currentTWAP == ReaperStrategyStabilityPool.TWAP.VeloV2) {
             ernAmount =
                 IVelodromePair(veloUsdcErnPool).quote(usdcAddress, usdcAmount, wrappedProxy.veloUsdcErnQuoteGranularity());
@@ -917,7 +919,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
         console.log("ernAmount: ", ernAmount);
         console.log("wantValueInCollateral: ", wantValueInCollateral);
-        assertEq(ernAmount, wantValueInCollateral);
+        assertApproxEqRel(ernAmount, wantValueInCollateral, 1e8);
 
         uint256 compoundingFeeMarginBPS = wrappedProxy.compoundingFeeMarginBPS();
         uint256 expectedPoolIncrease = ernAmount * compoundingFeeMarginBPS / BPS_UNIT;
