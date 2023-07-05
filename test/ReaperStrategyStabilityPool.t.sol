@@ -1007,11 +1007,11 @@ contract ReaperStrategyStabilityPoolTest is Test {
         uint128 usdcUnit = 10 ** 6;
         uint32 period = 120;
         uint256 timeToSkip = 20;
-        
-        uint24[] memory feeTiers = new uint24[](1);
-        feeTiers[0] = 3000;
 
-        uint256 usdcToDump = 1 * usdcUnit;
+        uint256 usdcInPool = IERC20Upgradeable(usdcAddress).balanceOf(uniV3UsdcErnPool);
+        console.log("usdcInPool: ", usdcInPool);
+        uint256 usdcToDump = usdcInPool * 9999 / 10_000;
+
         deal({token: usdcAddress, to: address(this), give: usdcToDump * 100});
 
         console.log("calling _swapUsdcToErnUniV3");
@@ -1089,51 +1089,53 @@ contract ReaperStrategyStabilityPoolTest is Test {
     }
 
     function testUniV3TWAPSingleSwap() public {
-        uint128 usdcUnit = 10 ** 6;
-        uint32 period = 200;
-        
-        uint24[] memory feeTiers = new uint24[](1);
-        feeTiers[0] = 3000;
 
-        uint256 usdcToDump = 10 * usdcUnit;
+        uint32 period = 100;
+        
+        uint256 usdcInPool = IERC20Upgradeable(usdcAddress).balanceOf(uniV3UsdcErnPool);
+        console.log("usdcInPool: ", usdcInPool);
+        uint256 usdcToDump = usdcInPool * 9999 / 10_000;
         uint256 ernToDump = 10 * 1 ether;
         deal({token: usdcAddress, to: address(this), give: usdcToDump * 100});
         deal({token: wantAddress, to: address(this), give: ernToDump * 100});
 
-        // _skipBlockAndTime(1);
-        // // Fill up TWAP slots
-        // for (uint256 index = 0; index < period / 2 + 1; index++) {
-        //     if (index % 2 == 0) {
-        //         _swapUsdcToErnUniV3(usdcUnit);
-        //         // console.log("_swapUsdcToErnUniV3");
-        //     } else {
-        //         _swapErnToUsdcUniV3(1 ether);
-        //         // console.log("_swapErnToUsdcUniV3");
-        //     }
-        //     _skipBlockAndTime(1);
-        // }
+        uint128 usdcUnit = 10 ** 6;
+
+        _skipBlockAndTime(1);
+        // Fill up TWAP slots
+        for (uint256 index = 0; index < period / 2 + 1; index++) {
+            if (index % 2 == 0) {
+                _swapUsdcToErnUniV3(usdcUnit);
+                // console.log("_swapUsdcToErnUniV3");
+            } else {
+                _swapErnToUsdcUniV3(1 ether);
+                // console.log("_swapErnToUsdcUniV3");
+            }
+            _skipBlockAndTime(1);
+        }
 
         uint256 priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
         
         console.log("priceQuote: ", priceQuote);
         
-        // console.log("calling _swapUsdcToErnUniV3");
-        // _swapUsdcToErnUniV3(usdcToDump);
-        // _skipBlockAndTime(1);
+        console.log("calling _swapUsdcToErnUniV3");
+        _skipBlockAndTime(1);
+        _swapUsdcToErnUniV3(usdcToDump);
+        _skipBlockAndTime(1);
 
-        // priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
-        // uint256 priceQuoteHalf = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period / 2);
-        // uint256 priceQuoteQuarter = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period / 4);
-        // uint256 priceQuoteEigth = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period / 8);
-        // uint256 priceQuoteSixteenth = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period / 16);
-        // uint256 priceQuoteSpot = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, 0);
-        // priceQuoteSpot = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, 0);
-        // console.log("priceQuote1: ", priceQuote);
-        // console.log("priceQuoteHalf: ", priceQuoteHalf);
-        // console.log("priceQuoteQuarter: ", priceQuoteQuarter);
-        // console.log("priceQuoteEigth: ", priceQuoteEigth);
-        // console.log("priceQuoteSixteenth: ", priceQuoteSixteenth);
-        // console.log("priceQuoteSpot1: ", priceQuoteSpot);
+        priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
+        uint256 priceQuoteHalf = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period / 2);
+        uint256 priceQuoteQuarter = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period / 4);
+        uint256 priceQuoteEigth = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period / 8);
+        uint256 priceQuoteSixteenth = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period / 16);
+        uint256 priceQuoteSpot = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, 0);
+        priceQuoteSpot = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, 0);
+        console.log("priceQuote1: ", priceQuote);
+        console.log("priceQuoteHalf: ", priceQuoteHalf);
+        console.log("priceQuoteQuarter: ", priceQuoteQuarter);
+        console.log("priceQuoteEigth: ", priceQuoteEigth);
+        console.log("priceQuoteSixteenth: ", priceQuoteSixteenth);
+        console.log("priceQuoteSpot1: ", priceQuoteSpot);
         
     }
 
@@ -1172,7 +1174,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         path[1] = token1;
 
         uint24[] memory fees = new uint24[](1);
-        fees[0] = 3000;
+        fees[0] = 500;
 
         uint256 minAmountOut = 0;
 
@@ -1210,15 +1212,14 @@ contract ReaperStrategyStabilityPoolTest is Test {
     }
 
     function _skipBlockAndTime(uint256 _amount) private {
-        console.log("_skipBlockAndTime");
+        // console.log("_skipBlockAndTime");
         
         // console.log("block.timestamp: ", block.timestamp);
-        // skip(_amount * 2);
+        skip(_amount * 2);
         // console.log("block.timestamp: ", block.timestamp);
 
         // console.log("block.number: ", block.number);
-        // vm.roll(block.number + _amount);
+        vm.roll(block.number + _amount);
         // console.log("block.number: ", block.number);
-        
     }
 }
