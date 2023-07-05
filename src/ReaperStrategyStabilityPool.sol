@@ -118,7 +118,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         veloUsdcErnQuoteGranularity = 2;
         compoundingFeeMarginBPS = 9950;
         currentUsdcErnTWAP = _currentUsdcErnTWAP;
-        uniV3TWAPPeriod = 2;
+        updateUniV3TWAPPeriod(2);
     }
 
     function _liquidateAllPositions() internal override returns (uint256 amountFreed) {
@@ -472,7 +472,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         compoundingFeeMarginBPS = _compoundingFeeMarginBPS;
     }
 
-    function updateUniV3TWAPPeriod(uint32 _uniV3TWAPPeriod) external {
+    function updateUniV3TWAPPeriod(uint32 _uniV3TWAPPeriod) public {
         _atLeastRole(GUARDIAN);
         (, , , uint16 currentCardinality, , , ) = uniV3UsdcErnPool.slot0();
         uint32 maxPeriod = uint32(currentCardinality) * 60 / CARDINALITY_PER_MINUTE;
