@@ -60,8 +60,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
 
     enum TWAP {
         UniV3,
-        VeloV2,
-        Beethoven
+        VeloV2
     }
 
     error SequencerDown();
