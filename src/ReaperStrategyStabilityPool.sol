@@ -303,14 +303,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     }
 
     function getErnAmountForUsdcUniV3(uint128 _baseAmount, uint32 _period) public view returns (uint256 ernAmount) {
-        (, , , uint16 currentCardinality, , , ) = uniV3UsdcErnPool.slot0();
-
-        uint32 maxPeriod = uint32(currentCardinality) * 60 / CARDINALITY_PER_MINUTE;
-
-        if ( _period > maxPeriod) {
-             _period = maxPeriod;
-        }
-
         address[] memory pools = new address[](1);
         pools[0] = address(uniV3UsdcErnPool);
         uint256 quoteAmount = uniV3TWAP.quoteSpecificPoolsWithTimePeriod(_baseAmount, address(usdc), want, pools, _period);
