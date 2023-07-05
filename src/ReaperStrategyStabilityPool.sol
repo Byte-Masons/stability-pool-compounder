@@ -304,7 +304,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     }
 
     function getErnAmountForUsdcUniV3(uint128 _baseAmount, uint32 _period) public view returns (uint256 ernAmount) {
-        (, , , , uint16 currentCardinality, , ) = uniV3UsdcErnPool.slot0();
+        (, , , uint16 currentCardinality, , , ) = uniV3UsdcErnPool.slot0();
 
         uint32 maxPeriod = uint32(currentCardinality) * 60 / CARDINALITY_PER_MINUTE;
 
@@ -475,7 +475,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
 
     function updateUniV3TWAPPeriod(uint32 _uniV3TWAPPeriod) external {
         _atLeastRole(GUARDIAN);
-        (, , , , uint16 currentCardinality, , ) = uniV3UsdcErnPool.slot0();
+        (, , , uint16 currentCardinality, , , ) = uniV3UsdcErnPool.slot0();
         uint32 maxPeriod = uint32(currentCardinality) * 60 / CARDINALITY_PER_MINUTE;
         require(
             _uniV3TWAPPeriod <= maxPeriod,
