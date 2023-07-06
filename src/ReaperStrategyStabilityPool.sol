@@ -63,7 +63,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         VeloV2
     }
 
-    error SequencerDown();
     error InvalidUsdcToErnExchange(uint256 exchangeEnum);
     error InvalidUsdcToErnTWAP(uint256 twapEnum);
 
@@ -128,7 +127,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     }
 
     function _beforeHarvestSwapSteps() internal override {
-        _revertIfSequencerDown();
         _withdraw(0); // claim rewards
     }
 
@@ -400,29 +398,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
             scaledColl = scaledColl * (10 ** (_collDecimals - ETHOS_DECIMALS));
         } else if (_collDecimals < ETHOS_DECIMALS) {
             scaledColl = scaledColl / (10 ** (ETHOS_DECIMALS - _collDecimals));
-        }
-    }
-
-    /**
-     * @dev Reverts if the L2 sequencer is down
-     */
-    function _revertIfSequencerDown() internal view {
-        (
-            /*uint80 roundID*/
-            ,
-            int256 answer,
-            /*uint256 startedAt*/
-            ,
-            /*uint256 updatedAt*/
-            ,
-            /*uint80 answeredInRound*/
-        ) = sequencerUptimeFeed.latestRoundData();
-
-        // Answer == 0: Sequencer is up
-        // Answer == 1: Sequencer is down
-        bool isSequencerUp = answer == 0;
-        if (!isSequencerUp) {
-            revert SequencerDown();
         }
     }
 
