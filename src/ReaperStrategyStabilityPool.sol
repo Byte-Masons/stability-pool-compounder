@@ -305,7 +305,8 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     function getErnAmountForUsdcUniV3(uint128 _baseAmount, uint32 _period) public view returns (uint256 ernAmount) {
         address[] memory pools = new address[](1);
         pools[0] = address(uniV3UsdcErnPool);
-        uint256 quoteAmount = uniV3TWAP.quoteSpecificPoolsWithTimePeriod(_baseAmount, address(usdc), want, pools, _period);
+        uint256 quoteAmount =
+            uniV3TWAP.quoteSpecificPoolsWithTimePeriod(_baseAmount, address(usdc), want, pools, _period);
         return quoteAmount;
     }
 
@@ -443,12 +444,9 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
 
     function updateUniV3TWAPPeriod(uint32 _uniV3TWAPPeriod) public {
         _atLeastRole(GUARDIAN);
-        (, , , uint16 currentCardinality, , , ) = uniV3UsdcErnPool.slot0();
+        (,,, uint16 currentCardinality,,,) = uniV3UsdcErnPool.slot0();
         uint32 maxPeriod = uint32(currentCardinality) * 60 / CARDINALITY_PER_MINUTE;
-        require(
-            _uniV3TWAPPeriod <= maxPeriod,
-            "Pool needs a higher cardinality to support the period"
-        );
+        require(_uniV3TWAPPeriod <= maxPeriod, "Pool needs a higher cardinality to support the period");
         uniV3TWAPPeriod = _uniV3TWAPPeriod;
     }
 

@@ -808,10 +808,11 @@ contract ReaperStrategyStabilityPoolTest is Test {
         if (currentTWAP == ReaperStrategyStabilityPool.TWAP.UniV3) {
             address[] memory pools = new address[](1);
             pools[0] = address(uniV3UsdcErnPool);
-            priceQuote = IStaticOracle(uniV3TWAP).quoteSpecificPoolsWithTimePeriod(uint128(usdcAmount), usdcAddress, wantAddress, pools, 2);
+            priceQuote = IStaticOracle(uniV3TWAP).quoteSpecificPoolsWithTimePeriod(
+                uint128(usdcAmount), usdcAddress, wantAddress, pools, 2
+            );
         } else if (currentTWAP == ReaperStrategyStabilityPool.TWAP.VeloV2) {
-            priceQuote =
-                pool.quote(usdcAddress, usdcAmount, granularity);
+            priceQuote = pool.quote(usdcAddress, usdcAmount, granularity);
         }
         // Values should be the same because the usdc balance will be valued
         // using the Velo TWAP
@@ -910,10 +911,13 @@ contract ReaperStrategyStabilityPoolTest is Test {
             pools[0] = address(uniV3UsdcErnPool);
             uint32 twapPeriod = wrappedProxy.uniV3TWAPPeriod();
             console.log("twapPeriod: ", twapPeriod);
-            ernAmount = IStaticOracle(uniV3TWAP).quoteSpecificPoolsWithTimePeriod(uint128(usdcAmount), usdcAddress, wantAddress, pools, twapPeriod);
+            ernAmount = IStaticOracle(uniV3TWAP).quoteSpecificPoolsWithTimePeriod(
+                uint128(usdcAmount), usdcAddress, wantAddress, pools, twapPeriod
+            );
         } else if (currentTWAP == ReaperStrategyStabilityPool.TWAP.VeloV2) {
-            ernAmount =
-                IVelodromePair(veloUsdcErnPool).quote(usdcAddress, usdcAmount, wrappedProxy.veloUsdcErnQuoteGranularity());
+            ernAmount = IVelodromePair(veloUsdcErnPool).quote(
+                usdcAddress, usdcAmount, wrappedProxy.veloUsdcErnQuoteGranularity()
+            );
         }
         uint256 wantValueInCollateral = wrappedProxy.getERNValueOfCollateralGain();
 
@@ -1030,7 +1034,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         priceQuoteSpot = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, 0);
         console.log("priceQuote2: ", priceQuote);
         console.log("priceQuoteSpot2: ", priceQuoteSpot);
-        
+
         _swapUsdcToErnUniV3(usdcToDump);
         _skipBlockAndTime(timeToSkip);
 
@@ -1089,9 +1093,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
     }
 
     function testUniV3TWAPSingleSwap() public {
-
         uint32 period = 100;
-        
+
         uint256 usdcInPool = IERC20Upgradeable(usdcAddress).balanceOf(uniV3UsdcErnPool);
         console.log("usdcInPool: ", usdcInPool);
         uint256 usdcToDump = usdcInPool * 9999 / 10_000;
@@ -1115,9 +1118,9 @@ contract ReaperStrategyStabilityPoolTest is Test {
         }
 
         uint256 priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
-        
+
         console.log("priceQuote: ", priceQuote);
-        
+
         console.log("calling _swapUsdcToErnUniV3");
         _skipBlockAndTime(1);
         _swapUsdcToErnUniV3(usdcToDump);
@@ -1136,7 +1139,6 @@ contract ReaperStrategyStabilityPoolTest is Test {
         console.log("priceQuoteEigth: ", priceQuoteEigth);
         console.log("priceQuoteSixteenth: ", priceQuoteSixteenth);
         console.log("priceQuoteSpot1: ", priceQuoteSpot);
-        
     }
 
     function liquidateTroves(address asset) internal {
@@ -1147,24 +1149,15 @@ contract ReaperStrategyStabilityPoolTest is Test {
         return amount * (10 ** want.decimals());
     }
 
-    function _swapUsdcToErnUniV3(uint256 _amount)
-        internal
-        returns (uint256 amountOut)
-    {
+    function _swapUsdcToErnUniV3(uint256 _amount) internal returns (uint256 amountOut) {
         return _swapUniV3(_amount, usdcAddress, wantAddress);
     }
 
-    function _swapErnToUsdcUniV3(uint256 _amount)
-        internal
-        returns (uint256 amountOut)
-    {
+    function _swapErnToUsdcUniV3(uint256 _amount) internal returns (uint256 amountOut) {
         return _swapUniV3(_amount, wantAddress, usdcAddress);
     }
 
-    function _swapUniV3(uint256 _amount, address token0, address token1)
-        internal
-        returns (uint256 amountOut)
-    {
+    function _swapUniV3(uint256 _amount, address token0, address token1) internal returns (uint256 amountOut) {
         if (_amount == 0) {
             return 0;
         }
@@ -1213,7 +1206,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
     function _skipBlockAndTime(uint256 _amount) private {
         // console.log("_skipBlockAndTime");
-        
+
         // console.log("block.timestamp: ", block.timestamp);
         skip(_amount * 2);
         // console.log("block.timestamp: ", block.timestamp);
