@@ -187,7 +187,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
         uint24[] memory usdcErnFees = new uint24[](1);
         usdcErnFees[0] = 500;
-        UniV3SwapData memory usdcErnSwapData = UniV3SwapData({ path: usdcErnPath, fees: usdcErnFees });
+        UniV3SwapData memory usdcErnSwapData = UniV3SwapData({path: usdcErnPath, fees: usdcErnFees});
 
         vm.startPrank(strategistAddr);
         swapper.updateVeloSwapPath(usdcAddress, wantAddress, veloRouter, usdcErnRoute);
@@ -227,7 +227,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         wethUsdcPath[1] = usdcAddress;
         uint24[] memory wethUsdcFees = new uint24[](1);
         wethUsdcFees[0] = 500;
-        UniV3SwapData memory wethUsdcSwapData = UniV3SwapData({ path: wethUsdcPath, fees: wethUsdcFees });
+        UniV3SwapData memory wethUsdcSwapData = UniV3SwapData({path: wethUsdcPath, fees: wethUsdcFees});
         swapper.updateUniV3SwapPath(wethAddress, usdcAddress, uniV3Router, wethUsdcSwapData);
 
         address[] memory wbtcUsdcPath = new address[](3);
@@ -237,7 +237,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         uint24[] memory wbtcUsdcFees = new uint24[](2);
         wbtcUsdcFees[0] = 500;
         wbtcUsdcFees[1] = 500;
-        UniV3SwapData memory wbtcUsdcSwapData = UniV3SwapData({ path: wbtcUsdcPath, fees: wbtcUsdcFees });
+        UniV3SwapData memory wbtcUsdcSwapData = UniV3SwapData({path: wbtcUsdcPath, fees: wbtcUsdcFees});
         swapper.updateUniV3SwapPath(wbtcAddress, usdcAddress, uniV3Router, wbtcUsdcSwapData);
 
         address[] memory opUsdcPath = new address[](3);
@@ -247,7 +247,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         uint24[] memory opUsdcFees = new uint24[](2);
         opUsdcFees[0] = 3000;
         opUsdcFees[1] = 500;
-        UniV3SwapData memory opUsdcSwapData = UniV3SwapData({ path: opUsdcPath, fees: opUsdcFees });
+        UniV3SwapData memory opUsdcSwapData = UniV3SwapData({path: opUsdcPath, fees: opUsdcFees});
         swapper.updateUniV3SwapPath(opAddress, usdcAddress, uniV3Router, opUsdcSwapData);
         vm.stopPrank();
 
@@ -774,7 +774,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
         IVeloRouter router = IVeloRouter(veloRouter);
         IVeloRouter.Route[] memory routes = new IVeloRouter.Route[](1);
-        routes[0] = IVeloRouter.Route({from: usdcAddress, to: wantAddress, stable: true, factory: veloFactoryV2Default });
+        routes[0] = IVeloRouter.Route({from: usdcAddress, to: wantAddress, stable: true, factory: veloFactoryV2Default});
         vm.startPrank(dumpourBob);
         IERC20(usdcAddress).approve(veloRouter, usdcToDump);
         uint256 minAmountOut = 0;
