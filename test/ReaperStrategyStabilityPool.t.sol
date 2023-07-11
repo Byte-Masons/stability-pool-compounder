@@ -32,10 +32,11 @@ contract ReaperStrategyStabilityPoolTest is Test {
     address public priceFeedAddress = 0xC6b3Eea38Cbe0123202650fB49c59ec41a406427;
     address public priceFeedOwnerAddress = 0xf1a717766c1b2Ed3f63b602E6482dD699ce1C79C;
     address public troveManager = 0xd584A5E956106DB2fE74d56A0B14a9d64BE8DC93;
-    address public veloRouter = 0x9c12939390052919aF3155f41Bf4160Fd3666A6f;
+    address public veloRouter = 0xa062aE8A9c5e11aaA026fc2670B0D65cCc8B2858;
+    address public veloFactoryV1 = 0x25CbdDb98b35ab1FF77413456B31EC81A6B6B746;
+    address public veloFactoryV2Default = 0xF1046053aa5682b4F9a81b5481394DA16BE5FF5a;
     address public balVault = 0xBA12222222228d8Ba445958a75a0704d566BF2C8;
     address public uniV3Router = 0xE592427A0AEce92De3Edee1F18E0157C05861564;
-    address public uniV3Quoter = 0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6;
     address public uniV2Router = 0xbeeF000000000000000000000000000000000000; // Any non-0 address when UniV2 router does not exist
     address public veloUsdcErnPool = 0x5e4A183Fa83C52B1c55b11f2682f6a8421206633;
     address public uniV3UsdcErnPool = 0x4CE4a1a593Ea9f2e6B2c05016a00a2D300C9fFd8;
@@ -63,6 +64,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
     address public opHolder = 0x790b4086D106Eafd913e71843AED987eFE291c92;
 
     bytes32 public balErnPoolId = 0x1d95129c18a8c91c464111fdf7d0eb241b37a9850002000000000000000000c1;
+    bytes32 public oatsAndGrainPoolId = 0x1cc3e990b23a09fc9715aaf7ccf21c212a9cbc160001000000000000000000bd;
 
     uint256 BPS_UNIT = 10_000;
 
@@ -169,9 +171,6 @@ contract ReaperStrategyStabilityPoolTest is Test {
         uint256 allocation = 10_000;
         vault.addStrategy(address(wrappedProxy), feeBPS, allocation);
 
-        vm.prank(superAdminAddress);
-        swapper.updateUniV3Quoter(uniV3Router, uniV3Quoter);
-
         vm.prank(wantHolderAddr);
         want.approve(address(vault), type(uint256).max);
         deal({token: address(want), to: wantHolderAddr, give: _toWant(1000)});
@@ -182,50 +181,74 @@ contract ReaperStrategyStabilityPoolTest is Test {
             // console.log("adding keeper: ", keeper);
         }
 
+        IVeloRouter.Route[] memory usdcErnRoute = new IVeloRouter.Route[](1);
+        usdcErnRoute[0] =
+            IVeloRouter.Route({from: usdcAddress, to: wantAddress, stable: true, factory: veloFactoryV2Default});
+
+        uint24[] memory usdcErnFees = new uint24[](1);
+        usdcErnFees[0] = 500;
+        UniV3SwapData memory usdcErnSwapData = UniV3SwapData({ path: usdcErnPath, fees: usdcErnFees });
+
         vm.startPrank(strategistAddr);
-        swapper.updateVeloSwapPath(usdcAddress, wantAddress, veloRouter, usdcErnPath);
-        swapper.updateUniV3SwapPath(usdcAddress, wantAddress, uniV3Router, usdcErnPath);
+        swapper.updateVeloSwapPath(usdcAddress, wantAddress, veloRouter, usdcErnRoute);
+        swapper.updateUniV3SwapPath(usdcAddress, wantAddress, uniV3Router, usdcErnSwapData);
         swapper.updateBalSwapPoolID(usdcAddress, wantAddress, balVault, balErnPoolId);
 
-        address[] memory wethErnPath = new address[](3);
-        wethErnPath[0] = wethAddress;
-        wethErnPath[1] = usdcAddress;
-        wethErnPath[2] = wantAddress;
-        swapper.updateVeloSwapPath(wethAddress, wantAddress, veloRouter, wethErnPath);
+        IVeloRouter.Route[] memory wethErnRoute = new IVeloRouter.Route[](2);
+        wethErnRoute[0] =
+            IVeloRouter.Route({from: wethAddress, to: usdcAddress, stable: false, factory: veloFactoryV2Default});
+        wethErnRoute[1] =
+            IVeloRouter.Route({from: usdcAddress, to: wantAddress, stable: true, factory: veloFactoryV2Default});
+        swapper.updateVeloSwapPath(wethAddress, wantAddress, veloRouter, wethErnRoute);
 
-        address[] memory wbtcErnPath = new address[](3);
-        wbtcErnPath[0] = wbtcAddress;
-        wbtcErnPath[1] = usdcAddress;
-        wbtcErnPath[2] = wantAddress;
-        swapper.updateVeloSwapPath(wbtcAddress, wantAddress, veloRouter, wbtcErnPath);
+        IVeloRouter.Route[] memory wbtcErnRoute = new IVeloRouter.Route[](2);
+        wbtcErnRoute[0] =
+            IVeloRouter.Route({from: wbtcAddress, to: usdcAddress, stable: false, factory: veloFactoryV2Default});
+        wbtcErnRoute[1] =
+            IVeloRouter.Route({from: usdcAddress, to: wantAddress, stable: true, factory: veloFactoryV2Default});
+        swapper.updateVeloSwapPath(wbtcAddress, wantAddress, veloRouter, wbtcErnRoute);
 
-        address[] memory oathErnPath = new address[](3);
-        oathErnPath[0] = oathAddress;
-        oathErnPath[1] = usdcAddress;
-        oathErnPath[2] = wantAddress;
-        swapper.updateVeloSwapPath(oathAddress, wantAddress, veloRouter, oathErnPath);
+        // IVeloRouter.Route[] memory oathErnRoute = new IVeloRouter.Route[](2);
+        // oathErnRoute[0] =
+        //     IVeloRouter.Route({from: oathAddress, to: usdcAddress, stable: false, factory: veloFactoryV2Default});
+        // oathErnRoute[1] =
+        //     IVeloRouter.Route({from: usdcAddress, to: wantAddress, stable: true, factory: veloFactoryV2Default});
+        // swapper.updateVeloSwapPath(oathAddress, wantAddress, veloRouter, oathErnRoute);
 
-        address[] memory oathUsdcPath = new address[](2);
-        oathUsdcPath[0] = oathAddress;
-        oathUsdcPath[1] = usdcAddress;
-        swapper.updateVeloSwapPath(oathAddress, usdcAddress, veloRouter, oathUsdcPath);
+        // IVeloRouter.Route[] memory oathUsdcRoute = new IVeloRouter.Route[](2);
+        // oathUsdcRoute[0] =
+        //     IVeloRouter.Route({from: oathAddress, to: usdcAddress, stable: false, factory: veloFactoryV2Default});
+        // swapper.updateVeloSwapPath(oathAddress, usdcAddress, veloRouter, oathUsdcRoute);
+
+        swapper.updateBalSwapPoolID(oathAddress, usdcAddress, balVault, oatsAndGrainPoolId);
 
         address[] memory wethUsdcPath = new address[](2);
         wethUsdcPath[0] = wethAddress;
         wethUsdcPath[1] = usdcAddress;
-        swapper.updateUniV3SwapPath(wethAddress, usdcAddress, uniV3Router, wethUsdcPath);
+        uint24[] memory wethUsdcFees = new uint24[](1);
+        wethUsdcFees[0] = 500;
+        UniV3SwapData memory wethUsdcSwapData = UniV3SwapData({ path: wethUsdcPath, fees: wethUsdcFees });
+        swapper.updateUniV3SwapPath(wethAddress, usdcAddress, uniV3Router, wethUsdcSwapData);
 
         address[] memory wbtcUsdcPath = new address[](3);
         wbtcUsdcPath[0] = wbtcAddress;
         wbtcUsdcPath[1] = wethAddress;
         wbtcUsdcPath[2] = usdcAddress;
-        swapper.updateUniV3SwapPath(wbtcAddress, usdcAddress, uniV3Router, wbtcUsdcPath);
+        uint24[] memory wbtcUsdcFees = new uint24[](2);
+        wbtcUsdcFees[0] = 500;
+        wbtcUsdcFees[1] = 500;
+        UniV3SwapData memory wbtcUsdcSwapData = UniV3SwapData({ path: wbtcUsdcPath, fees: wbtcUsdcFees });
+        swapper.updateUniV3SwapPath(wbtcAddress, usdcAddress, uniV3Router, wbtcUsdcSwapData);
 
         address[] memory opUsdcPath = new address[](3);
         opUsdcPath[0] = opAddress;
         opUsdcPath[1] = wethAddress;
         opUsdcPath[2] = usdcAddress;
-        swapper.updateUniV3SwapPath(opAddress, usdcAddress, uniV3Router, opUsdcPath);
+        uint24[] memory opUsdcFees = new uint24[](2);
+        opUsdcFees[0] = 3000;
+        opUsdcFees[1] = 500;
+        UniV3SwapData memory opUsdcSwapData = UniV3SwapData({ path: opUsdcPath, fees: opUsdcFees });
+        swapper.updateUniV3SwapPath(opAddress, usdcAddress, uniV3Router, opUsdcSwapData);
         vm.stopPrank();
 
         // Register CL aggregators in Swapper for WETH, WBTC, OP, and USDC
@@ -266,11 +289,11 @@ contract ReaperStrategyStabilityPoolTest is Test {
             exchangeAddress: uniV3Router
         });
         ReaperBaseStrategyv4.SwapStep memory step4 = ReaperBaseStrategyv4.SwapStep({
-            exType: ReaperBaseStrategyv4.ExchangeType.VeloSolid,
+            exType: ReaperBaseStrategyv4.ExchangeType.Bal,
             start: oathAddress,
             end: usdcAddress,
             minAmountOutData: MinAmountOutData({kind: MinAmountOutKind.Absolute, absoluteOrBPSValue: 0}),
-            exchangeAddress: veloRouter
+            exchangeAddress: balVault
         });
         ReaperBaseStrategyv4.SwapStep[] memory steps = new ReaperBaseStrategyv4.SwapStep[](4);
         steps[0] = step1;
@@ -750,8 +773,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
         deal({token: usdcAddress, to: dumpourBob, give: usdcToDump});
 
         IVeloRouter router = IVeloRouter(veloRouter);
-        IVeloRouter.route[] memory routes = new IVeloRouter.route[](1);
-        routes[0] = IVeloRouter.route({from: usdcAddress, to: wantAddress, stable: true});
+        IVeloRouter.Route[] memory routes = new IVeloRouter.Route[](1);
+        routes[0] = IVeloRouter.Route({from: usdcAddress, to: wantAddress, stable: true, factory: veloFactoryV2Default });
         vm.startPrank(dumpourBob);
         IERC20(usdcAddress).approve(veloRouter, usdcToDump);
         uint256 minAmountOut = 0;
@@ -1181,7 +1204,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
             amountOutMinimum: minAmountOut
         });
         // console.log("calling exactInput");
-        uint256 amountOut = ISwapRouter(uniV3Router).exactInput(params);
+        amountOut = ISwapRouter(uniV3Router).exactInput(params);
     }
 
     /**
