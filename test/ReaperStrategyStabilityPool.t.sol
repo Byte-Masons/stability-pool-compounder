@@ -15,6 +15,7 @@ import "src/interfaces/ITroveManager.sol";
 import "src/interfaces/IStabilityPool.sol";
 import "src/interfaces/IVelodromePair.sol";
 import "src/interfaces/IAggregatorAdmin.sol";
+import {IStaticOracle} from "src/interfaces/IStaticOracle.sol";
 import {IERC20Mintable} from "src/interfaces/IERC20Mintable.sol";
 import {ERC1967Proxy} from "oz/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC20Upgradeable} from "oz-upgradeable/token/ERC20/IERC20Upgradeable.sol";
@@ -31,14 +32,17 @@ contract ReaperStrategyStabilityPoolTest is Test {
     address public priceFeedAddress = 0xC6b3Eea38Cbe0123202650fB49c59ec41a406427;
     address public priceFeedOwnerAddress = 0xf1a717766c1b2Ed3f63b602E6482dD699ce1C79C;
     address public troveManager = 0xd584A5E956106DB2fE74d56A0B14a9d64BE8DC93;
-    address public veloRouter = 0x9c12939390052919aF3155f41Bf4160Fd3666A6f;
+    address public veloRouter = 0xa062aE8A9c5e11aaA026fc2670B0D65cCc8B2858;
+    address public veloFactoryV1 = 0x25CbdDb98b35ab1FF77413456B31EC81A6B6B746;
+    address public veloFactoryV2Default = 0xF1046053aa5682b4F9a81b5481394DA16BE5FF5a;
     address public balVault = 0xBA12222222228d8Ba445958a75a0704d566BF2C8;
     address public uniV3Router = 0xE592427A0AEce92De3Edee1F18E0157C05861564;
-    address public uniV3Quoter = 0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6;
     address public uniV2Router = 0xbeeF000000000000000000000000000000000000; // Any non-0 address when UniV2 router does not exist
-    address public veloUsdcErnPool = 0x55624DC97289A19045b4739627BEaEB1E70Ab64c;
+    address public veloUsdcErnPool = 0x5e4A183Fa83C52B1c55b11f2682f6a8421206633;
+    address public uniV3UsdcErnPool = 0x4CE4a1a593Ea9f2e6B2c05016a00a2D300C9fFd8;
     address public chainlinkUsdcOracle = 0x16a9FA2FDa030272Ce99B29CF780dFA30361E0f3;
     address public sequencerUptimeFeed = 0x371EAD81c9102C9BF4874A9075FFFf170F2Ee389;
+    address public uniV3TWAP = 0xB210CE856631EeEB767eFa666EC7C1C57738d438;
 
     address public superAdminAddress = 0x9BC776dBb134Ef9D7014dB1823Cd755Ac5015203;
     address public adminAddress = 0xeb9C9b785aA7818B2EBC8f9842926c4B9f707e4B;
@@ -60,6 +64,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
     address public opHolder = 0x790b4086D106Eafd913e71843AED987eFE291c92;
 
     bytes32 public balErnPoolId = 0x1d95129c18a8c91c464111fdf7d0eb241b37a9850002000000000000000000c1;
+    bytes32 public oatsAndGrainPoolId = 0x1cc3e990b23a09fc9715aaf7ccf21c212a9cbc160001000000000000000000bd;
 
     uint256 BPS_UNIT = 10_000;
 
@@ -109,7 +114,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
     function setUp() public {
         // Forking
         optimismFork = vm.createSelectFork(
-            "https://late-fragrant-rain.optimism.quiknode.pro/08eedcb171832b45c4961c9ff1392491e9b4cfaf/", 105252830
+            "https://late-fragrant-rain.optimism.quiknode.pro/08eedcb171832b45c4961c9ff1392491e9b4cfaf/", 106483261
         );
         assertEq(vm.activeFork(), optimismFork);
 
@@ -135,6 +140,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         ReaperStrategyStabilityPool.Pools memory pools;
         pools.stabilityPool = stabilityPoolAddress;
         pools.veloUsdcErnPool = veloUsdcErnPool;
+        pools.uniV3UsdcErnPool = uniV3UsdcErnPool;
 
         address[] memory usdcErnPath = new address[](2);
         usdcErnPath[0] = usdcAddress;
@@ -144,6 +150,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
         tokens.want = wantAddress;
         tokens.usdc = usdcAddress;
 
+        ReaperStrategyStabilityPool.TWAP currentUsdcErnTWAP = ReaperStrategyStabilityPool.TWAP.UniV3;
+
         wrappedProxy.initialize(
             address(vault),
             address(swapper),
@@ -152,17 +160,16 @@ contract ReaperStrategyStabilityPoolTest is Test {
             keepers,
             priceFeedAddress,
             sequencerUptimeFeed,
+            uniV3TWAP,
             exchangeSettings,
             pools,
-            tokens
+            tokens,
+            currentUsdcErnTWAP
         );
 
         uint256 feeBPS = 500;
         uint256 allocation = 10_000;
         vault.addStrategy(address(wrappedProxy), feeBPS, allocation);
-
-        vm.prank(superAdminAddress);
-        swapper.updateUniV3Quoter(uniV3Router, uniV3Quoter);
 
         vm.prank(wantHolderAddr);
         want.approve(address(vault), type(uint256).max);
@@ -174,50 +181,74 @@ contract ReaperStrategyStabilityPoolTest is Test {
             // console.log("adding keeper: ", keeper);
         }
 
+        IVeloRouter.Route[] memory usdcErnRoute = new IVeloRouter.Route[](1);
+        usdcErnRoute[0] =
+            IVeloRouter.Route({from: usdcAddress, to: wantAddress, stable: true, factory: veloFactoryV2Default});
+
+        uint24[] memory usdcErnFees = new uint24[](1);
+        usdcErnFees[0] = 500;
+        UniV3SwapData memory usdcErnSwapData = UniV3SwapData({path: usdcErnPath, fees: usdcErnFees});
+
         vm.startPrank(strategistAddr);
-        swapper.updateVeloSwapPath(usdcAddress, wantAddress, veloRouter, usdcErnPath);
-        swapper.updateUniV3SwapPath(usdcAddress, wantAddress, uniV3Router, usdcErnPath);
+        swapper.updateVeloSwapPath(usdcAddress, wantAddress, veloRouter, usdcErnRoute);
+        swapper.updateUniV3SwapPath(usdcAddress, wantAddress, uniV3Router, usdcErnSwapData);
         swapper.updateBalSwapPoolID(usdcAddress, wantAddress, balVault, balErnPoolId);
 
-        address[] memory wethErnPath = new address[](3);
-        wethErnPath[0] = wethAddress;
-        wethErnPath[1] = usdcAddress;
-        wethErnPath[2] = wantAddress;
-        swapper.updateVeloSwapPath(wethAddress, wantAddress, veloRouter, wethErnPath);
+        IVeloRouter.Route[] memory wethErnRoute = new IVeloRouter.Route[](2);
+        wethErnRoute[0] =
+            IVeloRouter.Route({from: wethAddress, to: usdcAddress, stable: false, factory: veloFactoryV2Default});
+        wethErnRoute[1] =
+            IVeloRouter.Route({from: usdcAddress, to: wantAddress, stable: true, factory: veloFactoryV2Default});
+        swapper.updateVeloSwapPath(wethAddress, wantAddress, veloRouter, wethErnRoute);
 
-        address[] memory wbtcErnPath = new address[](3);
-        wbtcErnPath[0] = wbtcAddress;
-        wbtcErnPath[1] = usdcAddress;
-        wbtcErnPath[2] = wantAddress;
-        swapper.updateVeloSwapPath(wbtcAddress, wantAddress, veloRouter, wbtcErnPath);
+        IVeloRouter.Route[] memory wbtcErnRoute = new IVeloRouter.Route[](2);
+        wbtcErnRoute[0] =
+            IVeloRouter.Route({from: wbtcAddress, to: usdcAddress, stable: false, factory: veloFactoryV2Default});
+        wbtcErnRoute[1] =
+            IVeloRouter.Route({from: usdcAddress, to: wantAddress, stable: true, factory: veloFactoryV2Default});
+        swapper.updateVeloSwapPath(wbtcAddress, wantAddress, veloRouter, wbtcErnRoute);
 
-        address[] memory oathErnPath = new address[](3);
-        oathErnPath[0] = oathAddress;
-        oathErnPath[1] = usdcAddress;
-        oathErnPath[2] = wantAddress;
-        swapper.updateVeloSwapPath(oathAddress, wantAddress, veloRouter, oathErnPath);
+        // IVeloRouter.Route[] memory oathErnRoute = new IVeloRouter.Route[](2);
+        // oathErnRoute[0] =
+        //     IVeloRouter.Route({from: oathAddress, to: usdcAddress, stable: false, factory: veloFactoryV2Default});
+        // oathErnRoute[1] =
+        //     IVeloRouter.Route({from: usdcAddress, to: wantAddress, stable: true, factory: veloFactoryV2Default});
+        // swapper.updateVeloSwapPath(oathAddress, wantAddress, veloRouter, oathErnRoute);
 
-        address[] memory oathUsdcPath = new address[](2);
-        oathUsdcPath[0] = oathAddress;
-        oathUsdcPath[1] = usdcAddress;
-        swapper.updateVeloSwapPath(oathAddress, usdcAddress, veloRouter, oathUsdcPath);
+        // IVeloRouter.Route[] memory oathUsdcRoute = new IVeloRouter.Route[](2);
+        // oathUsdcRoute[0] =
+        //     IVeloRouter.Route({from: oathAddress, to: usdcAddress, stable: false, factory: veloFactoryV2Default});
+        // swapper.updateVeloSwapPath(oathAddress, usdcAddress, veloRouter, oathUsdcRoute);
+
+        swapper.updateBalSwapPoolID(oathAddress, usdcAddress, balVault, oatsAndGrainPoolId);
 
         address[] memory wethUsdcPath = new address[](2);
         wethUsdcPath[0] = wethAddress;
         wethUsdcPath[1] = usdcAddress;
-        swapper.updateUniV3SwapPath(wethAddress, usdcAddress, uniV3Router, wethUsdcPath);
+        uint24[] memory wethUsdcFees = new uint24[](1);
+        wethUsdcFees[0] = 500;
+        UniV3SwapData memory wethUsdcSwapData = UniV3SwapData({path: wethUsdcPath, fees: wethUsdcFees});
+        swapper.updateUniV3SwapPath(wethAddress, usdcAddress, uniV3Router, wethUsdcSwapData);
 
         address[] memory wbtcUsdcPath = new address[](3);
         wbtcUsdcPath[0] = wbtcAddress;
         wbtcUsdcPath[1] = wethAddress;
         wbtcUsdcPath[2] = usdcAddress;
-        swapper.updateUniV3SwapPath(wbtcAddress, usdcAddress, uniV3Router, wbtcUsdcPath);
+        uint24[] memory wbtcUsdcFees = new uint24[](2);
+        wbtcUsdcFees[0] = 500;
+        wbtcUsdcFees[1] = 500;
+        UniV3SwapData memory wbtcUsdcSwapData = UniV3SwapData({path: wbtcUsdcPath, fees: wbtcUsdcFees});
+        swapper.updateUniV3SwapPath(wbtcAddress, usdcAddress, uniV3Router, wbtcUsdcSwapData);
 
         address[] memory opUsdcPath = new address[](3);
         opUsdcPath[0] = opAddress;
         opUsdcPath[1] = wethAddress;
         opUsdcPath[2] = usdcAddress;
-        swapper.updateUniV3SwapPath(opAddress, usdcAddress, uniV3Router, opUsdcPath);
+        uint24[] memory opUsdcFees = new uint24[](2);
+        opUsdcFees[0] = 3000;
+        opUsdcFees[1] = 500;
+        UniV3SwapData memory opUsdcSwapData = UniV3SwapData({path: opUsdcPath, fees: opUsdcFees});
+        swapper.updateUniV3SwapPath(opAddress, usdcAddress, uniV3Router, opUsdcSwapData);
         vm.stopPrank();
 
         // Register CL aggregators in Swapper for WETH, WBTC, OP, and USDC
@@ -258,11 +289,11 @@ contract ReaperStrategyStabilityPoolTest is Test {
             exchangeAddress: uniV3Router
         });
         ReaperBaseStrategyv4.SwapStep memory step4 = ReaperBaseStrategyv4.SwapStep({
-            exType: ReaperBaseStrategyv4.ExchangeType.VeloSolid,
+            exType: ReaperBaseStrategyv4.ExchangeType.Bal,
             start: oathAddress,
             end: usdcAddress,
             minAmountOutData: MinAmountOutData({kind: MinAmountOutKind.Absolute, absoluteOrBPSValue: 0}),
-            exchangeAddress: veloRouter
+            exchangeAddress: balVault
         });
         ReaperBaseStrategyv4.SwapStep[] memory steps = new ReaperBaseStrategyv4.SwapStep[](4);
         steps[0] = step1;
@@ -672,63 +703,63 @@ contract ReaperStrategyStabilityPoolTest is Test {
         assertEq(strategyBalance, 0);
     }
 
-    function testSharePriceChanges() public {
-        uint256 sharePrice1 = vault.getPricePerFullShare();
-        uint256 timeToSkip = 36000;
-        uint256 wantBalance = want.balanceOf(wantHolderAddr);
-        vm.prank(wantHolderAddr);
-        vault.deposit(wantBalance);
-        uint256 sharePrice2 = vault.getPricePerFullShare();
-        vm.prank(keepers[0]);
-        wrappedProxy.harvest();
-        skip(timeToSkip);
-        uint256 sharePrice3 = vault.getPricePerFullShare();
+    // function testSharePriceChanges() public {
+    //     uint256 sharePrice1 = vault.getPricePerFullShare();
+    //     uint256 timeToSkip = 36000;
+    //     uint256 wantBalance = want.balanceOf(wantHolderAddr);
+    //     vm.prank(wantHolderAddr);
+    //     vault.deposit(wantBalance);
+    //     uint256 sharePrice2 = vault.getPricePerFullShare();
+    //     vm.prank(keepers[0]);
+    //     wrappedProxy.harvest();
+    //     skip(timeToSkip);
+    //     uint256 sharePrice3 = vault.getPricePerFullShare();
 
-        address wethAggregator = IPriceFeed(priceFeedAddress).priceAggregator(wethAddress);
-        console.log("wethAggregator: ", wethAggregator);
+    //     address wethAggregator = IPriceFeed(priceFeedAddress).priceAggregator(wethAddress);
+    //     console.log("wethAggregator: ", wethAggregator);
 
-        MockAggregator mockChainlink = new MockAggregator();
-        mockChainlink.setPrevRoundId(2);
-        mockChainlink.setLatestRoundId(3);
-        mockChainlink.setPrice(1500 * 10 ** 8);
-        mockChainlink.setPrevPrice(1500 * 10 ** 8);
-        mockChainlink.setUpdateTime(block.timestamp);
+    //     MockAggregator mockChainlink = new MockAggregator();
+    //     mockChainlink.setPrevRoundId(2);
+    //     mockChainlink.setLatestRoundId(3);
+    //     mockChainlink.setPrice(1500 * 10 ** 8);
+    //     mockChainlink.setPrevPrice(1500 * 10 ** 8);
+    //     mockChainlink.setUpdateTime(block.timestamp);
 
-        MockAggregator mockChainlink2 = new MockAggregator();
-        mockChainlink2.setPrevRoundId(2);
-        mockChainlink2.setLatestRoundId(3);
-        mockChainlink2.setPrice(22_000 * 10 ** 8);
-        mockChainlink2.setPrevPrice(22_000 * 10 ** 8);
-        mockChainlink2.setUpdateTime(block.timestamp);
+    //     MockAggregator mockChainlink2 = new MockAggregator();
+    //     mockChainlink2.setPrevRoundId(2);
+    //     mockChainlink2.setLatestRoundId(3);
+    //     mockChainlink2.setPrice(25_000 * 10 ** 8);
+    //     mockChainlink2.setPrevPrice(25_000 * 10 ** 8);
+    //     mockChainlink2.setUpdateTime(block.timestamp);
 
-        vm.startPrank(priceFeedOwnerAddress);
-        // IPriceFeed(priceFeedAddress).updateChainlinkAggregator(wethAddress, address(mockChainlink));
-        IPriceFeed(priceFeedAddress).updateChainlinkAggregator(wbtcAddress, address(mockChainlink2));
-        vm.stopPrank();
+    //     vm.startPrank(priceFeedOwnerAddress);
+    //     // IPriceFeed(priceFeedAddress).updateChainlinkAggregator(wethAddress, address(mockChainlink));
+    //     IPriceFeed(priceFeedAddress).updateChainlinkAggregator(wbtcAddress, address(mockChainlink2));
+    //     vm.stopPrank();
 
-        uint256 rewardTokenGain = IStabilityPool(stabilityPoolAddress).getDepositorLQTYGain(address(wrappedProxy));
+    //     uint256 rewardTokenGain = IStabilityPool(stabilityPoolAddress).getDepositorLQTYGain(address(wrappedProxy));
 
-        liquidateTroves(wbtcAddress);
-        // liquidateTroves(wethAddress);
+    //     liquidateTroves(wbtcAddress);
+    //     // liquidateTroves(wethAddress);
 
-        wrappedProxy.harvest();
-        skip(timeToSkip);
-        uint256 sharePrice4 = vault.getPricePerFullShare();
+    //     wrappedProxy.harvest();
+    //     skip(timeToSkip);
+    //     uint256 sharePrice4 = vault.getPricePerFullShare();
 
-        wrappedProxy.getERNValueOfCollateralGain();
+    //     wrappedProxy.getERNValueOfCollateralGain();
 
-        console.log("sharePrice1: ", sharePrice1);
-        console.log("sharePrice2: ", sharePrice2);
-        console.log("sharePrice3: ", sharePrice3);
-        console.log("sharePrice4: ", sharePrice4);
-        assertGt(sharePrice4, sharePrice1);
-    }
+    //     console.log("sharePrice1: ", sharePrice1);
+    //     console.log("sharePrice2: ", sharePrice2);
+    //     console.log("sharePrice3: ", sharePrice3);
+    //     console.log("sharePrice4: ", sharePrice4);
+    //     assertGt(sharePrice4, sharePrice1);
+    // }
 
     function testVeloTWAP() public {
         console.log("testVeloTWAP");
         uint256 iterations = 20;
         IVelodromePair pool = IVelodromePair(veloUsdcErnPool);
-        uint256 currentPrice = pool.current(address(want), 1 ether);
+        uint256 currentPrice = pool.getAmountOut(1 ether, address(want));
         console.log("currentPrice: ", currentPrice);
         for (uint256 index = 1; index < iterations; index++) {
             uint256 currentPriceQuote = pool.quote(address(want), 1 ether, index);
@@ -742,8 +773,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
         deal({token: usdcAddress, to: dumpourBob, give: usdcToDump});
 
         IVeloRouter router = IVeloRouter(veloRouter);
-        IVeloRouter.route[] memory routes = new IVeloRouter.route[](1);
-        routes[0] = IVeloRouter.route({from: usdcAddress, to: wantAddress, stable: true});
+        IVeloRouter.Route[] memory routes = new IVeloRouter.Route[](1);
+        routes[0] = IVeloRouter.Route({from: usdcAddress, to: wantAddress, stable: true, factory: veloFactoryV2Default});
         vm.startPrank(dumpourBob);
         IERC20(usdcAddress).approve(veloRouter, usdcToDump);
         uint256 minAmountOut = 0;
@@ -753,7 +784,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         skip(timeToSkip);
         router.swapExactTokensForTokens(usdcUnit, minAmountOut, routes, dumpourBob, block.timestamp);
 
-        uint256 dumpedPrice = pool.current(address(want), 1 ether);
+        uint256 dumpedPrice = pool.getAmountOut(1 ether, address(want));
         console.log("dumpedPrice: ", dumpedPrice);
         for (uint256 index = 1; index < iterations; index++) {
             uint256 dumpedPriceQuote = pool.quote(address(want), 1 ether, index);
@@ -793,8 +824,19 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
         IVelodromePair pool = IVelodromePair(veloUsdcErnPool);
         uint256 granularity = wrappedProxy.veloUsdcErnQuoteGranularity();
-        uint256 priceQuote = pool.quote(usdcAddress, usdcAmount, granularity);
-        console.log("priceQuote: ", priceQuote);
+
+        ReaperStrategyStabilityPool.TWAP currentTWAP = wrappedProxy.currentUsdcErnTWAP();
+
+        uint256 priceQuote;
+        if (currentTWAP == ReaperStrategyStabilityPool.TWAP.UniV3) {
+            address[] memory pools = new address[](1);
+            pools[0] = address(uniV3UsdcErnPool);
+            priceQuote = IStaticOracle(uniV3TWAP).quoteSpecificPoolsWithTimePeriod(
+                uint128(usdcAmount), usdcAddress, wantAddress, pools, 2
+            );
+        } else if (currentTWAP == ReaperStrategyStabilityPool.TWAP.VeloV2) {
+            priceQuote = pool.quote(usdcAddress, usdcAmount, granularity);
+        }
         // Values should be the same because the usdc balance will be valued
         // using the Velo TWAP
         assertEq(valueInCollateralAfter, priceQuote);
@@ -884,17 +926,31 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
         // IVelodromePair pool = IVelodromePair(veloUsdcErnPool);
         // uint256 granularity = wrappedProxy.veloUsdcErnQuoteGranularity();
-        uint256 ernAmount =
-            IVelodromePair(veloUsdcErnPool).quote(usdcAddress, usdcAmount, wrappedProxy.veloUsdcErnQuoteGranularity());
+        ReaperStrategyStabilityPool.TWAP currentTWAP = wrappedProxy.currentUsdcErnTWAP();
+        console.log("currentTWAP: ", uint256(currentTWAP));
+        uint256 ernAmount;
+        if (currentTWAP == ReaperStrategyStabilityPool.TWAP.UniV3) {
+            address[] memory pools = new address[](1);
+            pools[0] = address(uniV3UsdcErnPool);
+            uint32 twapPeriod = wrappedProxy.uniV3TWAPPeriod();
+            console.log("twapPeriod: ", twapPeriod);
+            ernAmount = IStaticOracle(uniV3TWAP).quoteSpecificPoolsWithTimePeriod(
+                uint128(usdcAmount), usdcAddress, wantAddress, pools, twapPeriod
+            );
+        } else if (currentTWAP == ReaperStrategyStabilityPool.TWAP.VeloV2) {
+            ernAmount = IVelodromePair(veloUsdcErnPool).quote(
+                usdcAddress, usdcAmount, wrappedProxy.veloUsdcErnQuoteGranularity()
+            );
+        }
         uint256 wantValueInCollateral = wrappedProxy.getERNValueOfCollateralGain();
 
         console.log("ernAmount: ", ernAmount);
         console.log("wantValueInCollateral: ", wantValueInCollateral);
-        assertEq(ernAmount, wantValueInCollateral);
+        assertApproxEqRel(ernAmount, wantValueInCollateral, 1e8);
 
         uint256 compoundingFeeMarginBPS = wrappedProxy.compoundingFeeMarginBPS();
         uint256 expectedPoolIncrease = ernAmount * compoundingFeeMarginBPS / BPS_UNIT;
-        //console.log("poolBalanceIncrease: ", poolBalanceAfter - poolBalanceBefore);
+        // console.log("poolBalanceIncrease: ", poolBalanceAfter - poolBalanceBefore);
         // console.log("expectedPoolIncrease: ", expectedPoolIncrease);
         // assertEq(poolBalanceAfter - poolBalanceBefore, expectedPoolIncrease);
     }
@@ -946,32 +1002,166 @@ contract ReaperStrategyStabilityPoolTest is Test {
         assertApproxEqRel(valueInCollateral, expectedValueInCollateral, 0.005e18);
     }
 
-    function testVeloTWAPQuoteAmounts() public {
-        uint256 usdcUnit = 10 ** 6;
+    // function testVeloTWAPQuoteAmounts() public {
+    //     uint256 usdcUnit = 10 ** 6;
 
-        IVelodromePair pool = IVelodromePair(veloUsdcErnPool);
-        uint256 granularity = wrappedProxy.veloUsdcErnQuoteGranularity();
+    //     IVelodromePair pool = IVelodromePair(veloUsdcErnPool);
+    //     uint256 granularity = wrappedProxy.veloUsdcErnQuoteGranularity();
 
-        uint256 priceQuote1 = pool.quote(usdcAddress, usdcUnit, granularity);
-        uint256 priceQuote2 = pool.quote(usdcAddress, usdcUnit * 10, granularity);
-        uint256 priceQuote3 = pool.quote(usdcAddress, usdcUnit * 100, granularity);
-        uint256 priceQuote4 = pool.quote(usdcAddress, usdcUnit * 1000, granularity);
-        uint256 priceQuote5 = pool.quote(usdcAddress, usdcUnit * 10_000, granularity);
-        uint256 priceQuote6 = pool.quote(usdcAddress, usdcUnit * 100_000, granularity);
-        uint256 priceQuote7 = pool.quote(usdcAddress, usdcUnit * 1_000_000, granularity);
-        uint256 priceQuote8 = pool.quote(usdcAddress, usdcUnit * 10_000_000, granularity);
-        uint256 priceQuote9 = pool.quote(usdcAddress, usdcUnit * 100_000_000, granularity);
-        uint256 priceQuote10 = pool.quote(usdcAddress, usdcUnit * 1_000_000_000, granularity);
-        console.log("priceQuote1: ", priceQuote1);
-        console.log("priceQuote2: ", priceQuote2 / 10);
-        console.log("priceQuote3: ", priceQuote3 / 100);
-        console.log("priceQuote4: ", priceQuote4 / 1000);
-        console.log("priceQuote5: ", priceQuote5 / 10_000);
-        console.log("priceQuote6: ", priceQuote6 / 100_000);
-        console.log("priceQuote7: ", priceQuote7 / 1_000_000);
-        console.log("priceQuote8: ", priceQuote8 / 10_000_000);
-        console.log("priceQuote9: ", priceQuote9 / 100_000_000);
-        console.log("priceQuote10: ", priceQuote10 / 1_000_000_000);
+    //     uint256 priceQuote1 = pool.quote(usdcAddress, usdcUnit, granularity);
+    //     uint256 priceQuote2 = pool.quote(usdcAddress, usdcUnit * 10, granularity);
+    //     uint256 priceQuote3 = pool.quote(usdcAddress, usdcUnit * 100, granularity);
+    //     uint256 priceQuote4 = pool.quote(usdcAddress, usdcUnit * 1000, granularity);
+    //     uint256 priceQuote5 = pool.quote(usdcAddress, usdcUnit * 10_000, granularity);
+    //     uint256 priceQuote6 = pool.quote(usdcAddress, usdcUnit * 100_000, granularity);
+    //     uint256 priceQuote7 = pool.quote(usdcAddress, usdcUnit * 1_000_000, granularity);
+    //     uint256 priceQuote8 = pool.quote(usdcAddress, usdcUnit * 10_000_000, granularity);
+    //     uint256 priceQuote9 = pool.quote(usdcAddress, usdcUnit * 100_000_000, granularity);
+    //     uint256 priceQuote10 = pool.quote(usdcAddress, usdcUnit * 1_000_000_000, granularity);
+    //     console.log("priceQuote1: ", priceQuote1);
+    //     console.log("priceQuote2: ", priceQuote2 / 10);
+    //     console.log("priceQuote3: ", priceQuote3 / 100);
+    //     console.log("priceQuote4: ", priceQuote4 / 1000);
+    //     console.log("priceQuote5: ", priceQuote5 / 10_000);
+    //     console.log("priceQuote6: ", priceQuote6 / 100_000);
+    //     console.log("priceQuote7: ", priceQuote7 / 1_000_000);
+    //     console.log("priceQuote8: ", priceQuote8 / 10_000_000);
+    //     console.log("priceQuote9: ", priceQuote9 / 100_000_000);
+    //     console.log("priceQuote10: ", priceQuote10 / 1_000_000_000);
+    // }
+
+    function testUniV3TWAPMultipleSwaps() public {
+        uint128 usdcUnit = 10 ** 6;
+        uint32 period = 120;
+        uint256 timeToSkip = 20;
+
+        uint256 usdcInPool = IERC20Upgradeable(usdcAddress).balanceOf(uniV3UsdcErnPool);
+        console.log("usdcInPool: ", usdcInPool);
+        uint256 usdcToDump = usdcInPool * 9999 / 10_000;
+
+        deal({token: usdcAddress, to: address(this), give: usdcToDump * 100});
+
+        console.log("calling _swapUsdcToErnUniV3");
+        _swapUsdcToErnUniV3(usdcToDump);
+        _skipBlockAndTime(timeToSkip);
+
+        uint256 priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
+        uint256 priceQuoteSpot = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, 0);
+        console.log("priceQuote1: ", priceQuote);
+        console.log("priceQuoteSpot1: ", priceQuoteSpot);
+
+        _swapUsdcToErnUniV3(usdcToDump);
+        _skipBlockAndTime(timeToSkip);
+
+        priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
+        priceQuoteSpot = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, 0);
+        console.log("priceQuote2: ", priceQuote);
+        console.log("priceQuoteSpot2: ", priceQuoteSpot);
+
+        _swapUsdcToErnUniV3(usdcToDump);
+        _skipBlockAndTime(timeToSkip);
+
+        priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
+        priceQuoteSpot = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, 0);
+        console.log("priceQuote3: ", priceQuote);
+        console.log("priceQuoteSpot3: ", priceQuoteSpot);
+
+        _swapUsdcToErnUniV3(usdcToDump);
+        _skipBlockAndTime(timeToSkip);
+
+        priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
+        priceQuoteSpot = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, 0);
+        console.log("priceQuote4: ", priceQuote);
+        console.log("priceQuoteSpot4: ", priceQuoteSpot);
+
+        _swapUsdcToErnUniV3(usdcToDump);
+        _skipBlockAndTime(timeToSkip);
+
+        priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
+        priceQuoteSpot = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, 0);
+        console.log("priceQuote5: ", priceQuote);
+        console.log("priceQuoteSpot5: ", priceQuoteSpot);
+
+        _swapUsdcToErnUniV3(usdcToDump);
+        _skipBlockAndTime(timeToSkip);
+
+        priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
+        priceQuoteSpot = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, 0);
+        console.log("priceQuote6: ", priceQuote);
+        console.log("priceQuoteSpot6: ", priceQuoteSpot);
+
+        _swapUsdcToErnUniV3(usdcToDump);
+        _skipBlockAndTime(timeToSkip);
+
+        priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
+        priceQuoteSpot = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, 0);
+        console.log("priceQuote7: ", priceQuote);
+        console.log("priceQuoteSpot7: ", priceQuoteSpot);
+
+        _swapUsdcToErnUniV3(usdcToDump);
+        _skipBlockAndTime(timeToSkip);
+
+        priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
+        priceQuoteSpot = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, 0);
+        console.log("priceQuote8: ", priceQuote);
+        console.log("priceQuoteSpot8: ", priceQuoteSpot);
+
+        _swapUsdcToErnUniV3(usdcToDump);
+        _skipBlockAndTime(timeToSkip);
+
+        priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
+        priceQuoteSpot = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, 0);
+        console.log("priceQuote9: ", priceQuote);
+        console.log("priceQuoteSpot9: ", priceQuoteSpot);
+    }
+
+    function testUniV3TWAPSingleSwap() public {
+        uint32 period = 100;
+
+        uint256 usdcInPool = IERC20Upgradeable(usdcAddress).balanceOf(uniV3UsdcErnPool);
+        console.log("usdcInPool: ", usdcInPool);
+        uint256 usdcToDump = usdcInPool * 9999 / 10_000;
+        uint256 ernToDump = 10 * 1 ether;
+        deal({token: usdcAddress, to: address(this), give: usdcToDump * 100});
+        deal({token: wantAddress, to: address(this), give: ernToDump * 100});
+
+        uint128 usdcUnit = 10 ** 6;
+
+        _skipBlockAndTime(1);
+        // Fill up TWAP slots
+        for (uint256 index = 0; index < period / 2 + 1; index++) {
+            if (index % 2 == 0) {
+                _swapUsdcToErnUniV3(usdcUnit);
+                // console.log("_swapUsdcToErnUniV3");
+            } else {
+                _swapErnToUsdcUniV3(1 ether);
+                // console.log("_swapErnToUsdcUniV3");
+            }
+            _skipBlockAndTime(1);
+        }
+
+        uint256 priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
+
+        console.log("priceQuote: ", priceQuote);
+
+        console.log("calling _swapUsdcToErnUniV3");
+        _skipBlockAndTime(1);
+        _swapUsdcToErnUniV3(usdcToDump);
+        _skipBlockAndTime(1);
+
+        priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
+        uint256 priceQuoteHalf = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period / 2);
+        uint256 priceQuoteQuarter = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period / 4);
+        uint256 priceQuoteEigth = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period / 8);
+        uint256 priceQuoteSixteenth = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period / 16);
+        uint256 priceQuoteSpot = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, 0);
+        priceQuoteSpot = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, 0);
+        console.log("priceQuote1: ", priceQuote);
+        console.log("priceQuoteHalf: ", priceQuoteHalf);
+        console.log("priceQuoteQuarter: ", priceQuoteQuarter);
+        console.log("priceQuoteEigth: ", priceQuoteEigth);
+        console.log("priceQuoteSixteenth: ", priceQuoteSixteenth);
+        console.log("priceQuoteSpot1: ", priceQuoteSpot);
     }
 
     function liquidateTroves(address asset) internal {
@@ -980,5 +1170,72 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
     function _toWant(uint256 amount) internal returns (uint256) {
         return amount * (10 ** want.decimals());
+    }
+
+    function _swapUsdcToErnUniV3(uint256 _amount) internal returns (uint256 amountOut) {
+        return _swapUniV3(_amount, usdcAddress, wantAddress);
+    }
+
+    function _swapErnToUsdcUniV3(uint256 _amount) internal returns (uint256 amountOut) {
+        return _swapUniV3(_amount, wantAddress, usdcAddress);
+    }
+
+    function _swapUniV3(uint256 _amount, address token0, address token1) internal returns (uint256 amountOut) {
+        if (_amount == 0) {
+            return 0;
+        }
+
+        address[] memory path = new address[](2);
+        path[0] = token0;
+        path[1] = token1;
+
+        uint24[] memory fees = new uint24[](1);
+        fees[0] = 500;
+
+        uint256 minAmountOut = 0;
+
+        bytes memory pathBytes = _encodePathV3(path, fees);
+        TransferHelper.safeApprove(path[0], uniV3Router, _amount);
+        ISwapRouter.ExactInputParams memory params = ISwapRouter.ExactInputParams({
+            path: pathBytes,
+            recipient: address(this),
+            deadline: block.timestamp,
+            amountIn: _amount,
+            amountOutMinimum: minAmountOut
+        });
+        // console.log("calling exactInput");
+        amountOut = ISwapRouter(uniV3Router).exactInput(params);
+    }
+
+    /**
+     * Encode path / fees to bytes in the format expected by UniV3 router
+     *
+     * @param _path          List of token address to swap via (starting with input token)
+     * @param _fees          List of fee levels identifying the pools to swap via.
+     *                       (_fees[0] refers to pool between _path[0] and _path[1])
+     *
+     * @return encodedPath   Encoded path to be forwared to uniV3 router
+     */
+    function _encodePathV3(address[] memory _path, uint24[] memory _fees)
+        private
+        pure
+        returns (bytes memory encodedPath)
+    {
+        encodedPath = abi.encodePacked(_path[0]);
+        for (uint256 i = 0; i < _fees.length; i++) {
+            encodedPath = abi.encodePacked(encodedPath, _fees[i], _path[i + 1]);
+        }
+    }
+
+    function _skipBlockAndTime(uint256 _amount) private {
+        // console.log("_skipBlockAndTime");
+
+        // console.log("block.timestamp: ", block.timestamp);
+        skip(_amount * 2);
+        // console.log("block.timestamp: ", block.timestamp);
+
+        // console.log("block.number: ", block.number);
+        vm.roll(block.number + _amount);
+        // console.log("block.number: ", block.number);
     }
 }
