@@ -120,12 +120,18 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         updateUniV3TWAPPeriod(2);
     }
 
+    /**
+     * @dev Emergency function to quickly exit the position and return the funds to the vault
+     */
     function _liquidateAllPositions() internal override returns (uint256 amountFreed) {
         _withdraw(type(uint256).max);
         _harvestCore();
         return balanceOfWant();
     }
 
+    /**
+     * @dev Hook run before harvest to claim rewards
+     */
     function _beforeHarvestSwapSteps() internal override {
         _withdraw(0); // claim rewards
     }
@@ -290,6 +296,10 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         }
     }
 
+    /**
+     * @dev Returns the {expectedErnAmount} for the specified {_usdcAmount} of USDC using either
+     * VeloV2 or UniV3 TWAP depending on the {currentUsdcErnTWAP} setting.
+     */
     function _getErnAmountForUsdc(uint256 _usdcAmount) internal view returns (uint256 expectedErnAmount) {
         if (_usdcAmount != 0) {
             if (currentUsdcErnTWAP == TWAP.VeloV2) {
@@ -302,6 +312,10 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         }
     }
 
+    /**
+     * @dev Returns the {ernAmount} for the specified {_baseAmount} of USDC over a given {_period} (in seconds)
+     * using the UniV3 TWAP.
+     */
     function getErnAmountForUsdcUniV3(uint128 _baseAmount, uint32 _period) public view returns (uint256 ernAmount) {
         address[] memory pools = new address[](1);
         pools[0] = address(uniV3UsdcErnPool);
@@ -442,6 +456,12 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         compoundingFeeMarginBPS = _compoundingFeeMarginBPS;
     }
 
+    /**
+     * @dev Sets the period (in seconds) used to query the UniV3 TWAP
+     * The pool itself has a {currentCardinality} that must be set before
+     * to support a given period by calling increaseObservationCardinalityNext
+     * on the UniV3 pool.
+     */
     function updateUniV3TWAPPeriod(uint32 _uniV3TWAPPeriod) public {
         _atLeastRole(ADMIN);
         (,,, uint16 currentCardinality,,,) = uniV3UsdcErnPool.slot0();
@@ -450,6 +470,10 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         uniV3TWAPPeriod = _uniV3TWAPPeriod;
     }
 
+    /**
+     * @dev Sets which TWAP will be used to price USDC-ERN. Can currently
+     * be either UniV3 or VeloV2.
+     */
     function updateCurrentUsdcErnTWAP(TWAP _currentUsdcErnTWAP) external {
         _atLeastRole(GUARDIAN);
         currentUsdcErnTWAP = _currentUsdcErnTWAP;
