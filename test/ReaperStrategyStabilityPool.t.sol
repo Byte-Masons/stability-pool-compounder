@@ -41,7 +41,6 @@ contract ReaperStrategyStabilityPoolTest is Test {
     address public veloUsdcErnPool = 0x5e4A183Fa83C52B1c55b11f2682f6a8421206633;
     address public uniV3UsdcErnPool = 0x4CE4a1a593Ea9f2e6B2c05016a00a2D300C9fFd8;
     address public chainlinkUsdcOracle = 0x16a9FA2FDa030272Ce99B29CF780dFA30361E0f3;
-    address public sequencerUptimeFeed = 0x371EAD81c9102C9BF4874A9075FFFf170F2Ee389;
     address public uniV3TWAP = 0xB210CE856631EeEB767eFa666EC7C1C57738d438;
 
     address public superAdminAddress = 0x9BC776dBb134Ef9D7014dB1823Cd755Ac5015203;
@@ -159,7 +158,6 @@ contract ReaperStrategyStabilityPoolTest is Test {
             multisigRoles,
             keepers,
             priceFeedAddress,
-            sequencerUptimeFeed,
             uniV3TWAP,
             exchangeSettings,
             pools,
