@@ -105,7 +105,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         exchangeSettings = _exchangeSettings;
 
         ernMinAmountOutBPS = 9800;
-        usdcToErnExchange = ExchangeType.VeloSolid;
+        usdcToErnExchange = ExchangeType.UniV3;
 
         uniV3TWAP = IStaticOracle(_uniV3TWAP);
         veloUsdcErnPool = IVelodromePair(_pools.veloUsdcErnPool);
