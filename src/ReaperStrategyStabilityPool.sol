@@ -26,7 +26,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     IPriceFeed public priceFeed;
     IERC20MetadataUpgradeable public usdc;
     ExchangeSettings public exchangeSettings; // Holds addresses to use Velo, UniV3 and Bal through Swapper
-    AggregatorV3Interface public sequencerUptimeFeed;
     IVelodromePair public veloUsdcErnPool;
     IUniswapV3Pool public uniV3UsdcErnPool;
     IStaticOracle public uniV3TWAP;
@@ -77,7 +76,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         address[] memory _multisigRoles,
         address[] memory _keepers,
         address _priceFeed,
-        address _sequencerUptimeFeed,
         address _uniV3TWAP,
         ExchangeSettings calldata _exchangeSettings,
         Pools calldata _pools,
@@ -91,7 +89,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         require(_tokens.want != address(0), "want is 0 address");
         require(_priceFeed != address(0), "priceFeed is 0 address");
         require(_tokens.usdc != address(0), "usdc is 0 address");
-        require(_sequencerUptimeFeed != address(0), "sequencerUptimeFeed is 0 address");
         require(_uniV3TWAP != address(0), "uniV3TWAP is 0 address");
         require(_exchangeSettings.veloRouter != address(0), "veloRouter is 0 address");
         require(_exchangeSettings.balVault != address(0), "balVault is 0 address");
@@ -110,7 +107,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         ernMinAmountOutBPS = 9800;
         usdcToErnExchange = ExchangeType.VeloSolid;
 
-        sequencerUptimeFeed = AggregatorV3Interface(_sequencerUptimeFeed);
         uniV3TWAP = IStaticOracle(_uniV3TWAP);
         veloUsdcErnPool = IVelodromePair(_pools.veloUsdcErnPool);
         uniV3UsdcErnPool = IUniswapV3Pool(_pools.uniV3UsdcErnPool);
