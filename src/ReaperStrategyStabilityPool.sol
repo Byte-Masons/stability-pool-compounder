@@ -17,6 +17,7 @@ import {MathUpgradeable} from "oz-upgradeable/utils/math/MathUpgradeable.sol";
 /**
  * @dev Strategy to compound rewards and liquidation collateral gains in the Ethos stability pool
  */
+
 contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     using SafeERC20Upgradeable for IERC20MetadataUpgradeable;
 
@@ -453,7 +454,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
 
     /**
      * @dev Sets the period (in seconds) used to query the UniV3 TWAP
-     * The pool itself has a {currentCardinality} by calling 
+     * The pool itself has a {currentCardinality} by calling
      * increaseObservationCardinalityNext on the UniV3 pool.
      * The earliest observation in the pool must be within the given time period.
      */
