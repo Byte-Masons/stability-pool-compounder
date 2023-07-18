@@ -8,7 +8,7 @@ const FTMSCAN_KEY = process.env.FTMSCAN_API_KEY;
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
   solidity: {
-    version: "0.8.20",
+    version: "0.8.18",
     settings: {
       optimizer: {
         enabled: true,
