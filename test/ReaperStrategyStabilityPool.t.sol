@@ -113,7 +113,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
     function setUp() public {
         // Forking
         optimismFork = vm.createSelectFork(
-            "https://late-fragrant-rain.optimism.quiknode.pro/08eedcb171832b45c4961c9ff1392491e9b4cfaf/", 106483261
+            "https://late-fragrant-rain.optimism.quiknode.pro/08eedcb171832b45c4961c9ff1392491e9b4cfaf/", 107007630
         );
         assertEq(vm.activeFork(), optimismFork);
 
@@ -1114,7 +1114,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
     }
 
     function testUniV3TWAPSingleSwap() public {
-        uint32 period = 100;
+        uint32 period = 3600;
 
         uint256 usdcInPool = IERC20Upgradeable(usdcAddress).balanceOf(uniV3UsdcErnPool);
         console.log("usdcInPool: ", usdcInPool);
@@ -1125,18 +1125,18 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
         uint128 usdcUnit = 10 ** 6;
 
-        _skipBlockAndTime(1);
-        // Fill up TWAP slots
-        for (uint256 index = 0; index < period / 2 + 1; index++) {
-            if (index % 2 == 0) {
-                _swapUsdcToErnUniV3(usdcUnit);
-                // console.log("_swapUsdcToErnUniV3");
-            } else {
-                _swapErnToUsdcUniV3(1 ether);
-                // console.log("_swapErnToUsdcUniV3");
-            }
-            _skipBlockAndTime(1);
-        }
+        // _skipBlockAndTime(1);
+        // // Fill up TWAP slots
+        // for (uint256 index = 0; index < period / 2 + 1; index++) {
+        //     if (index % 2 == 0) {
+        //         _swapUsdcToErnUniV3(usdcUnit);
+        //         // console.log("_swapUsdcToErnUniV3");
+        //     } else {
+        //         _swapErnToUsdcUniV3(1 ether);
+        //         // console.log("_swapErnToUsdcUniV3");
+        //     }
+        //     _skipBlockAndTime(1);
+        // }
 
         uint256 priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
 
@@ -1146,6 +1146,9 @@ contract ReaperStrategyStabilityPoolTest is Test {
         _skipBlockAndTime(1);
         _swapUsdcToErnUniV3(usdcToDump);
         _skipBlockAndTime(1);
+
+        usdcInPool = IERC20Upgradeable(usdcAddress).balanceOf(uniV3UsdcErnPool);
+        console.log("usdcInPool: ", usdcInPool);
 
         priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
         uint256 priceQuoteHalf = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period / 2);
