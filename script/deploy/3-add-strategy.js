@@ -8,7 +8,7 @@ async function main() {
   const vault = Vault.attach(vaultAddress);
 
   const feeBPS = 1000;
-  const allocation = 9000;
+  const allocation = 10_000;
   await vault.addStrategy(strategyAddress, feeBPS, allocation);
   console.log("Strategy added");
 }
