@@ -14,7 +14,6 @@ import {IUniswapV3Pool} from "./interfaces/IUniswapV3Pool.sol";
 import {IERC20MetadataUpgradeable} from "oz-upgradeable/token/ERC20/extensions/IERC20MetadataUpgradeable.sol";
 import {SafeERC20Upgradeable} from "oz-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 import {MathUpgradeable} from "oz-upgradeable/utils/math/MathUpgradeable.sol";
-
 /**
  * @dev Strategy to compound rewards and liquidation collateral gains in the Ethos stability pool
  */
@@ -454,15 +453,17 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
 
     /**
      * @dev Sets the period (in seconds) used to query the UniV3 TWAP
-     * The pool itself has a {currentCardinality} that must be set before
-     * to support a given period by calling increaseObservationCardinalityNext
-     * on the UniV3 pool.
+     * The pool itself has a {currentCardinality} by calling 
+     * increaseObservationCardinalityNext on the UniV3 pool.
+     * The earliest observation in the pool must be within the given time period.
      */
     function updateUniV3TWAPPeriod(uint32 _uniV3TWAPPeriod) public {
         _atLeastRole(ADMIN);
-        (,,, uint16 currentCardinality,,,) = uniV3UsdcErnPool.slot0();
-        uint32 maxPeriod = uint32(currentCardinality) * 60 / CARDINALITY_PER_MINUTE;
-        require(_uniV3TWAPPeriod <= maxPeriod, "Pool needs a higher cardinality to support the period");
+        (uint32 earliestObservationTimestamp,,,) = uniV3UsdcErnPool.observations(0);
+        uint32 currentTimeStamp = uint32(block.timestamp);
+        uint32 timeDifference = currentTimeStamp - earliestObservationTimestamp;
+
+        require(_uniV3TWAPPeriod <= timeDifference, "Pool needs an older observation for time period");
         uniV3TWAPPeriod = _uniV3TWAPPeriod;
     }
 

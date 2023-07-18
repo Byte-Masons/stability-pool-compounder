@@ -1165,6 +1165,15 @@ contract ReaperStrategyStabilityPoolTest is Test {
         console.log("priceQuoteSpot1: ", priceQuoteSpot);
     }
 
+    function testUpdateUniV3TWAPPeriod() public {
+        uint32 period = 36000;
+        wrappedProxy.updateUniV3TWAPPeriod(period);
+
+        period = 999999999;
+        vm.expectRevert("Pool needs an older observation for time period");
+        wrappedProxy.updateUniV3TWAPPeriod(period);
+    }
+
     function liquidateTroves(address asset) internal {
         ITroveManager(troveManager).liquidateTroves(asset, 100);
     }
