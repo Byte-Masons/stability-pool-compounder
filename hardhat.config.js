@@ -8,7 +8,7 @@ const FTMSCAN_KEY = process.env.FTMSCAN_API_KEY;
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
   solidity: {
-    version: "0.8.18",
+    version: "0.8.20",
     settings: {
       optimizer: {
         enabled: true,
@@ -25,6 +25,11 @@ module.exports = {
     testnet: {
       url: "https://rpcapi-tracing.testnet.fantom.network",
       chainId: 4002,
+      accounts: [`0x${PRIVATE_KEY}`],
+    },
+    op: {
+      url: "https://mainnet.optimism.io",
+      chainId: 10,
       accounts: [`0x${PRIVATE_KEY}`],
     },
   },
