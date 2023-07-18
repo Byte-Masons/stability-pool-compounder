@@ -28,8 +28,8 @@ async function main() {
   [
     "0x9BC776dBb134Ef9D7014dB1823Cd755Ac5015203",
     "0xeb9C9b785aA7818B2EBC8f9842926c4B9f707e4B",
-    "0xb0C9D5851deF8A2Aac4A23031CA2610f8C3483F9"
-  ]
+    "0xb0C9D5851deF8A2Aac4A23031CA2610f8C3483F9",
+  ];
 
   const vault = await Vault.deploy(
     wantAddress,

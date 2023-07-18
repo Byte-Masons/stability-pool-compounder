@@ -26,9 +26,9 @@ async function main() {
     end: usdcAddress,
     minAmountOutData: {
       kind: chainlinkBased,
-      absoluteOrBPSValue: allowedSlippageBPS
+      absoluteOrBPSValue: allowedSlippageBPS,
     },
-    exchangeAddress: uniV3Router
+    exchangeAddress: uniV3Router,
   };
 
   const step2 = {
@@ -37,9 +37,9 @@ async function main() {
     end: usdcAddress,
     minAmountOutData: {
       kind: chainlinkBased,
-      absoluteOrBPSValue: allowedSlippageBPS
+      absoluteOrBPSValue: allowedSlippageBPS,
     },
-    exchangeAddress: uniV3Router
+    exchangeAddress: uniV3Router,
   };
 
   const step3 = {
@@ -48,9 +48,9 @@ async function main() {
     end: usdcAddress,
     minAmountOutData: {
       kind: chainlinkBased,
-      absoluteOrBPSValue: allowedSlippageBPS
+      absoluteOrBPSValue: allowedSlippageBPS,
     },
-    exchangeAddress: uniV3Router
+    exchangeAddress: uniV3Router,
   };
 
   const step4 = {
@@ -59,9 +59,9 @@ async function main() {
     end: usdcAddress,
     minAmountOutData: {
       kind: absolute,
-      absoluteOrBPSValue: 0
+      absoluteOrBPSValue: 0,
     },
-    exchangeAddress: balVault
+    exchangeAddress: balVault,
   };
   
   const steps = [step1, step2, step3, step4];

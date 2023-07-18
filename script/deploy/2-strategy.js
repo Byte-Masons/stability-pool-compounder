@@ -66,7 +66,7 @@ async function main() {
   const usdc = "0x7F5c764cBc14f9669B88837ca1490cCa17c31607";
   const tokens = {
     want,
-    usdc
+    usdc,
   };
 
   const uniV3Twap = 0;
@@ -85,7 +85,7 @@ async function main() {
       exchangeSettings,
       pools,
       tokens,
-      currentUsdcErnTWAP
+      currentUsdcErnTWAP,
     ],
     {kind: "uups", timeout: 0},
   );
