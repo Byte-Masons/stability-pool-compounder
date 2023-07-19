@@ -15,6 +15,7 @@ import "src/interfaces/ITroveManager.sol";
 import "src/interfaces/IStabilityPool.sol";
 import "src/interfaces/IVelodromePair.sol";
 import "src/interfaces/IAggregatorAdmin.sol";
+import {IUniswapV3Pool} from "src/interfaces/IUniswapV3Pool.sol";
 import {IStaticOracle} from "src/interfaces/IStaticOracle.sol";
 import {IERC20Mintable} from "src/interfaces/IERC20Mintable.sol";
 import {ERC1967Proxy} from "oz/proxy/ERC1967/ERC1967Proxy.sol";
@@ -1169,8 +1170,20 @@ contract ReaperStrategyStabilityPoolTest is Test {
         uint32 period = 36000;
         wrappedProxy.updateUniV3TWAPPeriod(period);
 
+        (uint32 earliestObservationTimestamp,,,) = IUniswapV3Pool(uniV3UsdcErnPool).observations(0);
+        uint32 currentTimeStamp = uint32(block.timestamp);
+        uint32 timeDifference = currentTimeStamp - earliestObservationTimestamp;
+        period = timeDifference;
+
+        wrappedProxy.updateUniV3TWAPPeriod(period);
+
+        period += 1;
+        console.log("period: ", period);
+        vm.expectRevert(bytes("OLD"));
+        wrappedProxy.updateUniV3TWAPPeriod(period);
+
         period = 999999999;
-        vm.expectRevert("Pool needs an older observation for time period");
+        vm.expectRevert(bytes("OLD"));
         wrappedProxy.updateUniV3TWAPPeriod(period);
     }
 

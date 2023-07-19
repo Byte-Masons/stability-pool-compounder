@@ -457,14 +457,11 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
      * The pool itself has a {currentCardinality} by calling
      * increaseObservationCardinalityNext on the UniV3 pool.
      * The earliest observation in the pool must be within the given time period.
+     * Will revert if the observation period is too long.
      */
     function updateUniV3TWAPPeriod(uint32 _uniV3TWAPPeriod) public {
         _atLeastRole(ADMIN);
-        (uint32 earliestObservationTimestamp,,,) = uniV3UsdcErnPool.observations(0);
-        uint32 currentTimeStamp = uint32(block.timestamp);
-        uint32 timeDifference = currentTimeStamp - earliestObservationTimestamp;
-
-        require(_uniV3TWAPPeriod <= timeDifference, "Pool needs an older observation for time period");
+        getErnAmountForUsdcUniV3(uint128(1_000_000), _uniV3TWAPPeriod);
         uniV3TWAPPeriod = _uniV3TWAPPeriod;
     }
 
