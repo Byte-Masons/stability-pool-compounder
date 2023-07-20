@@ -14,10 +14,10 @@ import {IUniswapV3Pool} from "./interfaces/IUniswapV3Pool.sol";
 import {IERC20MetadataUpgradeable} from "oz-upgradeable/token/ERC20/extensions/IERC20MetadataUpgradeable.sol";
 import {SafeERC20Upgradeable} from "oz-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 import {MathUpgradeable} from "oz-upgradeable/utils/math/MathUpgradeable.sol";
-
 /**
  * @dev Strategy to compound rewards and liquidation collateral gains in the Ethos stability pool
  */
+
 contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     using SafeERC20Upgradeable for IERC20MetadataUpgradeable;
 
@@ -26,7 +26,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     IPriceFeed public priceFeed;
     IERC20MetadataUpgradeable public usdc;
     ExchangeSettings public exchangeSettings; // Holds addresses to use Velo, UniV3 and Bal through Swapper
-    AggregatorV3Interface public sequencerUptimeFeed;
     IVelodromePair public veloUsdcErnPool;
     IUniswapV3Pool public uniV3UsdcErnPool;
     IStaticOracle public uniV3TWAP;
@@ -77,7 +76,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         address[] memory _multisigRoles,
         address[] memory _keepers,
         address _priceFeed,
-        address _sequencerUptimeFeed,
         address _uniV3TWAP,
         ExchangeSettings calldata _exchangeSettings,
         Pools calldata _pools,
@@ -91,7 +89,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         require(_tokens.want != address(0), "want is 0 address");
         require(_priceFeed != address(0), "priceFeed is 0 address");
         require(_tokens.usdc != address(0), "usdc is 0 address");
-        require(_sequencerUptimeFeed != address(0), "sequencerUptimeFeed is 0 address");
         require(_uniV3TWAP != address(0), "uniV3TWAP is 0 address");
         require(_exchangeSettings.veloRouter != address(0), "veloRouter is 0 address");
         require(_exchangeSettings.balVault != address(0), "balVault is 0 address");
@@ -108,9 +105,8 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         exchangeSettings = _exchangeSettings;
 
         ernMinAmountOutBPS = 9800;
-        usdcToErnExchange = ExchangeType.VeloSolid;
+        usdcToErnExchange = ExchangeType.UniV3;
 
-        sequencerUptimeFeed = AggregatorV3Interface(_sequencerUptimeFeed);
         uniV3TWAP = IStaticOracle(_uniV3TWAP);
         veloUsdcErnPool = IVelodromePair(_pools.veloUsdcErnPool);
         uniV3UsdcErnPool = IUniswapV3Pool(_pools.uniV3UsdcErnPool);
@@ -458,15 +454,14 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
 
     /**
      * @dev Sets the period (in seconds) used to query the UniV3 TWAP
-     * The pool itself has a {currentCardinality} that must be set before
-     * to support a given period by calling increaseObservationCardinalityNext
-     * on the UniV3 pool.
+     * The pool itself has a {currentCardinality} by calling
+     * increaseObservationCardinalityNext on the UniV3 pool.
+     * The earliest observation in the pool must be within the given time period.
+     * Will revert if the observation period is too long.
      */
     function updateUniV3TWAPPeriod(uint32 _uniV3TWAPPeriod) public {
         _atLeastRole(ADMIN);
-        (,,, uint16 currentCardinality,,,) = uniV3UsdcErnPool.slot0();
-        uint32 maxPeriod = uint32(currentCardinality) * 60 / CARDINALITY_PER_MINUTE;
-        require(_uniV3TWAPPeriod <= maxPeriod, "Pool needs a higher cardinality to support the period");
+        getErnAmountForUsdcUniV3(uint128(1_000_000), _uniV3TWAPPeriod);
         uniV3TWAPPeriod = _uniV3TWAPPeriod;
     }
 

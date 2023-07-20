@@ -15,6 +15,7 @@ import "src/interfaces/ITroveManager.sol";
 import "src/interfaces/IStabilityPool.sol";
 import "src/interfaces/IVelodromePair.sol";
 import "src/interfaces/IAggregatorAdmin.sol";
+import {IUniswapV3Pool} from "src/interfaces/IUniswapV3Pool.sol";
 import {IStaticOracle} from "src/interfaces/IStaticOracle.sol";
 import {IERC20Mintable} from "src/interfaces/IERC20Mintable.sol";
 import {ERC1967Proxy} from "oz/proxy/ERC1967/ERC1967Proxy.sol";
@@ -41,7 +42,6 @@ contract ReaperStrategyStabilityPoolTest is Test {
     address public veloUsdcErnPool = 0x5e4A183Fa83C52B1c55b11f2682f6a8421206633;
     address public uniV3UsdcErnPool = 0x4CE4a1a593Ea9f2e6B2c05016a00a2D300C9fFd8;
     address public chainlinkUsdcOracle = 0x16a9FA2FDa030272Ce99B29CF780dFA30361E0f3;
-    address public sequencerUptimeFeed = 0x371EAD81c9102C9BF4874A9075FFFf170F2Ee389;
     address public uniV3TWAP = 0xB210CE856631EeEB767eFa666EC7C1C57738d438;
 
     address public superAdminAddress = 0x9BC776dBb134Ef9D7014dB1823Cd755Ac5015203;
@@ -114,7 +114,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
     function setUp() public {
         // Forking
         optimismFork = vm.createSelectFork(
-            "https://late-fragrant-rain.optimism.quiknode.pro/08eedcb171832b45c4961c9ff1392491e9b4cfaf/", 106483261
+            "https://late-fragrant-rain.optimism.quiknode.pro/08eedcb171832b45c4961c9ff1392491e9b4cfaf/", 107007630
         );
         assertEq(vm.activeFork(), optimismFork);
 
@@ -159,7 +159,6 @@ contract ReaperStrategyStabilityPoolTest is Test {
             multisigRoles,
             keepers,
             priceFeedAddress,
-            sequencerUptimeFeed,
             uniV3TWAP,
             exchangeSettings,
             pools,
@@ -1116,7 +1115,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
     }
 
     function testUniV3TWAPSingleSwap() public {
-        uint32 period = 100;
+        uint32 period = 3600;
 
         uint256 usdcInPool = IERC20Upgradeable(usdcAddress).balanceOf(uniV3UsdcErnPool);
         console.log("usdcInPool: ", usdcInPool);
@@ -1127,18 +1126,18 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
         uint128 usdcUnit = 10 ** 6;
 
-        _skipBlockAndTime(1);
-        // Fill up TWAP slots
-        for (uint256 index = 0; index < period / 2 + 1; index++) {
-            if (index % 2 == 0) {
-                _swapUsdcToErnUniV3(usdcUnit);
-                // console.log("_swapUsdcToErnUniV3");
-            } else {
-                _swapErnToUsdcUniV3(1 ether);
-                // console.log("_swapErnToUsdcUniV3");
-            }
-            _skipBlockAndTime(1);
-        }
+        // _skipBlockAndTime(1);
+        // // Fill up TWAP slots
+        // for (uint256 index = 0; index < period / 2 + 1; index++) {
+        //     if (index % 2 == 0) {
+        //         _swapUsdcToErnUniV3(usdcUnit);
+        //         // console.log("_swapUsdcToErnUniV3");
+        //     } else {
+        //         _swapErnToUsdcUniV3(1 ether);
+        //         // console.log("_swapErnToUsdcUniV3");
+        //     }
+        //     _skipBlockAndTime(1);
+        // }
 
         uint256 priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
 
@@ -1148,6 +1147,9 @@ contract ReaperStrategyStabilityPoolTest is Test {
         _skipBlockAndTime(1);
         _swapUsdcToErnUniV3(usdcToDump);
         _skipBlockAndTime(1);
+
+        usdcInPool = IERC20Upgradeable(usdcAddress).balanceOf(uniV3UsdcErnPool);
+        console.log("usdcInPool: ", usdcInPool);
 
         priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
         uint256 priceQuoteHalf = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period / 2);
@@ -1162,6 +1164,27 @@ contract ReaperStrategyStabilityPoolTest is Test {
         console.log("priceQuoteEigth: ", priceQuoteEigth);
         console.log("priceQuoteSixteenth: ", priceQuoteSixteenth);
         console.log("priceQuoteSpot1: ", priceQuoteSpot);
+    }
+
+    function testUpdateUniV3TWAPPeriod() public {
+        uint32 period = 36000;
+        wrappedProxy.updateUniV3TWAPPeriod(period);
+
+        (uint32 earliestObservationTimestamp,,,) = IUniswapV3Pool(uniV3UsdcErnPool).observations(0);
+        uint32 currentTimeStamp = uint32(block.timestamp);
+        uint32 timeDifference = currentTimeStamp - earliestObservationTimestamp;
+        period = timeDifference;
+
+        wrappedProxy.updateUniV3TWAPPeriod(period);
+
+        period += 1;
+        console.log("period: ", period);
+        vm.expectRevert(bytes("OLD"));
+        wrappedProxy.updateUniV3TWAPPeriod(period);
+
+        period = 999999999;
+        vm.expectRevert(bytes("OLD"));
+        wrappedProxy.updateUniV3TWAPPeriod(period);
     }
 
     function liquidateTroves(address asset) internal {

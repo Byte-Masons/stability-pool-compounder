@@ -27,6 +27,11 @@ module.exports = {
       chainId: 4002,
       accounts: [`0x${PRIVATE_KEY}`],
     },
+    op: {
+      url: "https://mainnet.optimism.io",
+      chainId: 10,
+      accounts: [`0x${PRIVATE_KEY}`],
+    },
   },
   etherscan: {
     apiKey: FTMSCAN_KEY,
