@@ -113,8 +113,9 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
     function setUp() public {
         // Forking
+        string memory rpc = vm.envString("RPC");
         optimismFork = vm.createSelectFork(
-            "https://late-fragrant-rain.optimism.quiknode.pro/08eedcb171832b45c4961c9ff1392491e9b4cfaf/", 107007630
+            rpc, 107684572
         );
         assertEq(vm.activeFork(), optimismFork);
 
@@ -825,13 +826,14 @@ contract ReaperStrategyStabilityPoolTest is Test {
         uint256 granularity = wrappedProxy.veloUsdcErnQuoteGranularity();
 
         ReaperStrategyStabilityPool.TWAP currentTWAP = wrappedProxy.currentUsdcErnTWAP();
+        uint32 currentUniV3TWAPPeriod = wrappedProxy.uniV3TWAPPeriod();
 
         uint256 priceQuote;
         if (currentTWAP == ReaperStrategyStabilityPool.TWAP.UniV3) {
             address[] memory pools = new address[](1);
             pools[0] = address(uniV3UsdcErnPool);
             priceQuote = IStaticOracle(uniV3TWAP).quoteSpecificPoolsWithTimePeriod(
-                uint128(usdcAmount), usdcAddress, wantAddress, pools, 2
+                uint128(usdcAmount), usdcAddress, wantAddress, pools, currentUniV3TWAPPeriod
             );
         } else if (currentTWAP == ReaperStrategyStabilityPool.TWAP.VeloV2) {
             priceQuote = pool.quote(usdcAddress, usdcAmount, granularity);

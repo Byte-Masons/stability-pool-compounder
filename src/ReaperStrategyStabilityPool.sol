@@ -113,7 +113,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         veloUsdcErnQuoteGranularity = 2;
         compoundingFeeMarginBPS = 9950;
         currentUsdcErnTWAP = _currentUsdcErnTWAP;
-        updateUniV3TWAPPeriod(2);
+        updateUniV3TWAPPeriod(7200);
     }
 
     /**
@@ -461,6 +461,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
      */
     function updateUniV3TWAPPeriod(uint32 _uniV3TWAPPeriod) public {
         _atLeastRole(ADMIN);
+        require(_uniV3TWAPPeriod >= 7200, "TWAP period is too short");
         getErnAmountForUsdcUniV3(uint128(1_000_000), _uniV3TWAPPeriod);
         uniV3TWAPPeriod = _uniV3TWAPPeriod;
     }
