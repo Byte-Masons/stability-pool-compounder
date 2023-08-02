@@ -110,7 +110,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         uniV3TWAP = IStaticOracle(_uniV3TWAP);
         veloUsdcErnPool = IVelodromePair(_pools.veloUsdcErnPool);
         uniV3UsdcErnPool = IUniswapV3Pool(_pools.uniV3UsdcErnPool);
-        veloUsdcErnQuoteGranularity = 2;
+        updateVeloUsdcErnQuoteGranularity(5);
         compoundingFeeMarginBPS = 9950;
         currentUsdcErnTWAP = _currentUsdcErnTWAP;
         updateUniV3TWAPPeriod(7200);
@@ -433,9 +433,9 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     /**
      * @dev Updates the granularity used to check Velodrome TWAP (larger value looks at more samples/longer time)
      */
-    function updateVeloUsdcErnQuoteGranularity(uint256 _veloUsdcErnQuoteGranularity) external {
-        _atLeastRole(STRATEGIST);
-        require(_veloUsdcErnQuoteGranularity >= 2 && _veloUsdcErnQuoteGranularity <= 10, "Invalid granularity value");
+    function updateVeloUsdcErnQuoteGranularity(uint256 _veloUsdcErnQuoteGranularity) public {
+        _atLeastRole(ADMIN);
+        require(_veloUsdcErnQuoteGranularity >= 5, "Granularity is too small");
         veloUsdcErnQuoteGranularity = _veloUsdcErnQuoteGranularity;
     }
 
