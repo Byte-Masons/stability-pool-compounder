@@ -31,7 +31,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     IStaticOracle public uniV3TWAP;
 
     uint256 public constant ETHOS_DECIMALS = 18; // Decimals used by ETHOS
-    uint32 public constant CARDINALITY_PER_MINUTE = 30; // Optimism after bedrock update produces a block every 2 seconds
     uint256 public ernMinAmountOutBPS; // The max allowed slippage when trading in to ERN
     uint256 public compoundingFeeMarginBPS; // How much collateral value is lowered to account for the costs of swapping
     uint256 public veloUsdcErnQuoteGranularity; // How many samples to look at for Velo pool TWAP
