@@ -8,17 +8,20 @@ import {IStabilityPool} from "./interfaces/IStabilityPool.sol";
 import {IPriceFeed} from "./interfaces/IPriceFeed.sol";
 import {IVault} from "vault-v2/interfaces/IVault.sol";
 import {AggregatorV3Interface} from "vault-v2/interfaces/AggregatorV3Interface.sol";
+import {ReaperMathUtils} from "vault-v2/libraries/ReaperMathUtils.sol";
 import {IVelodromePair} from "./interfaces/IVelodromePair.sol";
 import {IStaticOracle} from "./interfaces/IStaticOracle.sol";
 import {IUniswapV3Pool} from "./interfaces/IUniswapV3Pool.sol";
 import {IERC20MetadataUpgradeable} from "oz-upgradeable/token/ERC20/extensions/IERC20MetadataUpgradeable.sol";
 import {SafeERC20Upgradeable} from "oz-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 import {MathUpgradeable} from "oz-upgradeable/utils/math/MathUpgradeable.sol";
+
 /**
  * @dev Strategy to compound rewards and liquidation collateral gains in the Ethos stability pool
  */
 
 contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
+    using ReaperMathUtils for uint256;
     using SafeERC20Upgradeable for IERC20MetadataUpgradeable;
 
     // 3rd-party contract addresses
@@ -64,6 +67,8 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     error InvalidUsdcToErnExchange(uint256 exchangeEnum);
     error InvalidUsdcToErnTWAP(uint256 twapEnum);
 
+    uint256 public allowedTWAPDiscrepancy; // % in BPS for the tolerated price discrepancy between TWAPs
+
     /**
      * @dev Initializes the strategy. Sets parameters, saves routes, and gives allowances.
      * @notice see documentation for each variable above its respective declaration.
@@ -79,7 +84,8 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         ExchangeSettings calldata _exchangeSettings,
         Pools calldata _pools,
         Tokens calldata _tokens,
-        TWAP _currentUsdcErnTWAP
+        TWAP _currentUsdcErnTWAP,
+        uint256 _allowedTWAPDiscrepancy
     ) public initializer {
         require(_vault != address(0), "vault is 0 address");
         require(_swapper != address(0), "swapper is 0 address");
@@ -113,6 +119,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         compoundingFeeMarginBPS = 9950;
         currentUsdcErnTWAP = _currentUsdcErnTWAP;
         updateUniV3TWAPPeriod(7200);
+        updateAllowedTWAPDiscrepancy(_allowedTWAPDiscrepancy);
     }
 
     /**
@@ -131,6 +138,36 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         _withdraw(0); // claim rewards
     }
 
+    function compound() public returns (uint256 usdcGained) {
+        _atLeastRole(KEEPER);
+        _beforeHarvestSwapSteps();
+
+        uint256 numSteps = swapSteps.length;
+        for (uint256 i = 0; i < numSteps; i = i.uncheckedInc()) {
+            SwapStep storage step = swapSteps[i];
+            IERC20MetadataUpgradeable startToken = IERC20MetadataUpgradeable(step.start);
+            uint256 amount = startToken.balanceOf(address(this));
+            if (amount == 0) {
+                continue;
+            }
+
+            startToken.safeApprove(address(swapper), 0);
+            startToken.safeIncreaseAllowance(address(swapper), amount);
+            if (step.exType == ExchangeType.UniV2) {
+                swapper.swapUniV2(step.start, step.end, amount, step.minAmountOutData, step.exchangeAddress);
+            } else if (step.exType == ExchangeType.Bal) {
+                swapper.swapBal(step.start, step.end, amount, step.minAmountOutData, step.exchangeAddress);
+            } else if (step.exType == ExchangeType.VeloSolid) {
+                swapper.swapVelo(step.start, step.end, amount, step.minAmountOutData, step.exchangeAddress);
+            } else if (step.exType == ExchangeType.UniV3) {
+                swapper.swapUniV3(step.start, step.end, amount, step.minAmountOutData, step.exchangeAddress);
+            } else {
+                revert InvalidExchangeType(uint256(step.exType));
+            }
+        }
+        usdcGained = usdc.balanceOf(address(this));
+    }
+
     // Swap steps will:
     // 1. liquidate collateral rewards into USDC using the external Swapper (+ Chainlink oracles)
     // 2. liquidate oath rewards into USDC using the external swapper (with 0 minAmountOut)
@@ -140,6 +177,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     function _afterHarvestSwapSteps() internal override {
         uint256 usdcBalance = usdc.balanceOf(address(this));
         if (usdcBalance != 0) {
+            _revertOnTWAPDiscrepancy(usdcBalance);
             uint256 expectedErnAmount = _getErnAmountForUsdc(usdcBalance);
             uint256 minAmountOut = (expectedErnAmount * ernMinAmountOutBPS) / PERCENT_DIVISOR;
             MinAmountOutData memory data =
@@ -307,6 +345,22 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         }
     }
 
+    function _revertOnTWAPDiscrepancy(uint256 _usdcAmount) internal view {
+        uint256 veloPrice = veloUsdcErnPool.quote(address(usdc), _usdcAmount, veloUsdcErnQuoteGranularity);
+        uint256 uniPrice = getErnAmountForUsdcUniV3(uint128(_usdcAmount), uniV3TWAPPeriod);
+        uint256 highPrice;
+        uint256 lowPrice;
+        if (veloPrice > uniPrice) {
+            highPrice = veloPrice;
+            lowPrice = uniPrice;
+        } else {
+            highPrice = uniPrice;
+            lowPrice = veloPrice;
+        }
+        bool hasPriceDiscrepancy = lowPrice < highPrice * (PERCENT_DIVISOR - allowedTWAPDiscrepancy) / PERCENT_DIVISOR;
+        require(!hasPriceDiscrepancy, "TWAP price discrepancy");
+    }
+
     /**
      * @dev Returns the {ernAmount} for the specified {_baseAmount} of USDC over a given {_period} (in seconds)
      * using the UniV3 TWAP.
@@ -472,5 +526,14 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     function updateCurrentUsdcErnTWAP(TWAP _currentUsdcErnTWAP) external {
         _atLeastRole(GUARDIAN);
         currentUsdcErnTWAP = _currentUsdcErnTWAP;
+    }
+
+    /**
+     * @dev Sets the relative amount that TWAPs can differ without reverting harvest
+     */
+    function updateAllowedTWAPDiscrepancy(uint256 _allowedTWAPDiscrepancy) public {
+        _atLeastRole(ADMIN);
+        require(_allowedTWAPDiscrepancy >= 100 && _allowedTWAPDiscrepancy <= 1500, "Invalid discrepancy value");
+        allowedTWAPDiscrepancy = _allowedTWAPDiscrepancy;
     }
 }

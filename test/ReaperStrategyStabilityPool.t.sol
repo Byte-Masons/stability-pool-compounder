@@ -115,7 +115,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         // Forking
         string memory rpc = vm.envString("RPC");
         optimismFork = vm.createSelectFork(
-            rpc, 107684572
+            rpc, 107776337
         );
         assertEq(vm.activeFork(), optimismFork);
 
@@ -152,6 +152,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         tokens.usdc = usdcAddress;
 
         ReaperStrategyStabilityPool.TWAP currentUsdcErnTWAP = ReaperStrategyStabilityPool.TWAP.UniV3;
+        uint256 allowedTWAPDiscrepancy = 100;
 
         wrappedProxy.initialize(
             address(vault),
@@ -164,7 +165,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
             exchangeSettings,
             pools,
             tokens,
-            currentUsdcErnTWAP
+            currentUsdcErnTWAP,
+            allowedTWAPDiscrepancy
         );
 
         uint256 feeBPS = 500;
