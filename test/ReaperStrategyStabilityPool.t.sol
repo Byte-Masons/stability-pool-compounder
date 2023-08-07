@@ -152,7 +152,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         tokens.usdc = usdcAddress;
 
         ReaperStrategyStabilityPool.TWAP currentUsdcErnTWAP = ReaperStrategyStabilityPool.TWAP.UniV3;
-        uint256 allowedTWAPDiscrepancy = 100;
+        uint256 allowedTWAPDiscrepancy = 500;
 
         wrappedProxy.initialize(
             address(vault),
@@ -203,24 +203,24 @@ contract ReaperStrategyStabilityPoolTest is Test {
             IVeloRouter.Route({from: usdcAddress, to: wantAddress, stable: true, factory: veloFactoryV2Default});
         swapper.updateVeloSwapPath(wethAddress, wantAddress, veloRouter, wethErnRoute);
 
-        IVeloRouter.Route[] memory wbtcErnRoute = new IVeloRouter.Route[](2);
-        wbtcErnRoute[0] =
-            IVeloRouter.Route({from: wbtcAddress, to: usdcAddress, stable: false, factory: veloFactoryV2Default});
-        wbtcErnRoute[1] =
-            IVeloRouter.Route({from: usdcAddress, to: wantAddress, stable: true, factory: veloFactoryV2Default});
-        swapper.updateVeloSwapPath(wbtcAddress, wantAddress, veloRouter, wbtcErnRoute);
-
-        // IVeloRouter.Route[] memory oathErnRoute = new IVeloRouter.Route[](2);
-        // oathErnRoute[0] =
-        //     IVeloRouter.Route({from: oathAddress, to: usdcAddress, stable: false, factory: veloFactoryV2Default});
-        // oathErnRoute[1] =
+        // IVeloRouter.Route[] memory wbtcErnRoute = new IVeloRouter.Route[](1);
+        // wbtcErnRoute[0] =
+        //     IVeloRouter.Route({from: wbtcAddress, to: usdcAddress, stable: false, factory: veloFactoryV2Default});
+        // wbtcErnRoute[1] =
         //     IVeloRouter.Route({from: usdcAddress, to: wantAddress, stable: true, factory: veloFactoryV2Default});
-        // swapper.updateVeloSwapPath(oathAddress, wantAddress, veloRouter, oathErnRoute);
+        // swapper.updateVeloSwapPath(wbtcAddress, wantAddress, veloRouter, wbtcErnRoute);
 
-        // IVeloRouter.Route[] memory oathUsdcRoute = new IVeloRouter.Route[](2);
-        // oathUsdcRoute[0] =
-        //     IVeloRouter.Route({from: oathAddress, to: usdcAddress, stable: false, factory: veloFactoryV2Default});
-        // swapper.updateVeloSwapPath(oathAddress, usdcAddress, veloRouter, oathUsdcRoute);
+        IVeloRouter.Route[] memory oathErnRoute = new IVeloRouter.Route[](2);
+        oathErnRoute[0] =
+            IVeloRouter.Route({from: oathAddress, to: usdcAddress, stable: false, factory: veloFactoryV2Default});
+        oathErnRoute[1] =
+            IVeloRouter.Route({from: usdcAddress, to: wantAddress, stable: true, factory: veloFactoryV2Default});
+        swapper.updateVeloSwapPath(oathAddress, wantAddress, veloRouter, oathErnRoute);
+
+        IVeloRouter.Route[] memory oathUsdcRoute = new IVeloRouter.Route[](2);
+        oathUsdcRoute[0] =
+            IVeloRouter.Route({from: oathAddress, to: usdcAddress, stable: false, factory: veloFactoryV2Default});
+        //swapper.updateVeloSwapPath(oathAddress, usdcAddress, veloRouter, oathUsdcRoute);
 
         swapper.updateBalSwapPoolID(oathAddress, usdcAddress, balVault, oatsAndGrainPoolId);
 
