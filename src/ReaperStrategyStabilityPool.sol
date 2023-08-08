@@ -69,10 +69,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
 
     uint256 public allowedTWAPDiscrepancy; // % in BPS for the tolerated price discrepancy between TWAPs
 
-    uint256 public constant TWAP_CHANGE_TIMELOCK = 6 hours; // Blocks harvest after changing TWAP to protect against MEV
-
-    uint256 public twapChangeTime; // Timestamp of the latest TWAP change
-
     /**
      * @dev Initializes the strategy. Sets parameters, saves routes, and gives allowances.
      * @notice see documentation for each variable above its respective declaration.
@@ -181,7 +177,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     function _afterHarvestSwapSteps() internal override {
         uint256 usdcBalance = usdc.balanceOf(address(this));
         if (usdcBalance != 0) {
-            require(twapChangeTime + TWAP_CHANGE_TIMELOCK <= block.timestamp, "TWAP changed too close to harvest");
             _revertOnTWAPDiscrepancy(usdcBalance);
             uint256 expectedErnAmount = _getErnAmountForUsdc(usdcBalance);
             uint256 minAmountOut = (expectedErnAmount * ernMinAmountOutBPS) / PERCENT_DIVISOR;
@@ -531,7 +526,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     function updateCurrentUsdcErnTWAP(TWAP _currentUsdcErnTWAP) external {
         _atLeastRole(GUARDIAN);
         currentUsdcErnTWAP = _currentUsdcErnTWAP;
-        twapChangeTime = block.timestamp;
     }
 
     /**
