@@ -524,7 +524,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
      * be either UniV3 or VeloV2.
      */
     function updateCurrentUsdcErnTWAP(TWAP _currentUsdcErnTWAP) external {
-        _atLeastRole(GUARDIAN);
+        _atLeastRole(ADMIN);
         uint256 ernCollateralValue = getERNValueOfCollateralGainUsingPriceFeed();
         require(ernCollateralValue == 0, "Cannot change TWAP with collateral value present");
         currentUsdcErnTWAP = _currentUsdcErnTWAP;
