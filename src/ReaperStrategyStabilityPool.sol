@@ -171,7 +171,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     // Swap steps will:
     // 1. liquidate collateral rewards into USDC using the external Swapper (+ Chainlink oracles)
     // 2. liquidate oath rewards into USDC using the external swapper (with 0 minAmountOut)
-    // As a final step, we need to convert the USDC into ERN using Velodrome's TWAP.
+    // As a final step, we need to convert the USDC into ERN using the configured TWAP (UniV3 or Velo).
     // Since the external Swapper cannot support arbitrary TWAPs at this time, we use this hook so
     // we can calculate the minAmountOut ourselves and call the swapper directly.
     function _afterHarvestSwapSteps() internal override {
