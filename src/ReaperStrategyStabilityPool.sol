@@ -142,6 +142,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         _atLeastRole(KEEPER);
         _beforeHarvestSwapSteps();
 
+        uint256 usdcBalanceBefore = usdc.balanceOf(address(this));
         uint256 numSteps = swapSteps.length;
         for (uint256 i = 0; i < numSteps; i = i.uncheckedInc()) {
             SwapStep storage step = swapSteps[i];
@@ -165,7 +166,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
                 revert InvalidExchangeType(uint256(step.exType));
             }
         }
-        usdcGained = usdc.balanceOf(address(this));
+        usdcGained = usdc.balanceOf(address(this)) - usdcBalanceBefore;
     }
 
     // Swap steps will:
