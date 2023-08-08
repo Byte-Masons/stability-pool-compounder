@@ -535,7 +535,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
      */
     function updateAllowedTWAPDiscrepancy(uint256 _allowedTWAPDiscrepancy) public {
         _atLeastRole(ADMIN);
-        require(_allowedTWAPDiscrepancy >= 100 && _allowedTWAPDiscrepancy <= 1500, "Invalid discrepancy value");
+        require(_allowedTWAPDiscrepancy >= 100 && _allowedTWAPDiscrepancy <= 1000, "Invalid discrepancy value");
         allowedTWAPDiscrepancy = _allowedTWAPDiscrepancy;
     }
 }
