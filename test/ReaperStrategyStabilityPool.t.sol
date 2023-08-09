@@ -140,7 +140,6 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
         ReaperStrategyStabilityPool.Pools memory pools;
         pools.stabilityPool = stabilityPoolAddress;
-        pools.veloUsdcErnPool = veloUsdcErnPool;
         pools.uniV3UsdcErnPool = uniV3UsdcErnPool;
 
         address[] memory usdcErnPath = new address[](2);
@@ -164,9 +163,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
             uniV3TWAP,
             exchangeSettings,
             pools,
-            tokens,
-            currentUsdcErnTWAP,
-            allowedTWAPDiscrepancy
+            tokens
         );
 
         uint256 feeBPS = 500;
@@ -824,22 +821,13 @@ contract ReaperStrategyStabilityPoolTest is Test {
         console.log("poolBalanceBefore: ", poolBalanceBefore);
         console.log("poolBalanceAfter: ", poolBalanceAfter);
 
-        IVelodromePair pool = IVelodromePair(veloUsdcErnPool);
-        uint256 granularity = wrappedProxy.veloUsdcErnQuoteGranularity();
-
-        ReaperStrategyStabilityPool.TWAP currentTWAP = wrappedProxy.currentUsdcErnTWAP();
         uint32 currentUniV3TWAPPeriod = wrappedProxy.uniV3TWAPPeriod();
 
-        uint256 priceQuote;
-        if (currentTWAP == ReaperStrategyStabilityPool.TWAP.UniV3) {
-            address[] memory pools = new address[](1);
-            pools[0] = address(uniV3UsdcErnPool);
-            priceQuote = IStaticOracle(uniV3TWAP).quoteSpecificPoolsWithTimePeriod(
-                uint128(usdcAmount), usdcAddress, wantAddress, pools, currentUniV3TWAPPeriod
-            );
-        } else if (currentTWAP == ReaperStrategyStabilityPool.TWAP.VeloV2) {
-            priceQuote = pool.quote(usdcAddress, usdcAmount, granularity);
-        }
+        address[] memory pools = new address[](1);
+        pools[0] = address(uniV3UsdcErnPool);
+        uint256 priceQuote = IStaticOracle(uniV3TWAP).quoteSpecificPoolsWithTimePeriod(
+            uint128(usdcAmount), usdcAddress, wantAddress, pools, currentUniV3TWAPPeriod
+        );
         // Values should be the same because the usdc balance will be valued
         // using the Velo TWAP
         assertEq(valueInCollateralAfter, priceQuote);
@@ -927,24 +915,13 @@ contract ReaperStrategyStabilityPoolTest is Test {
         uint256 usdcAmount = ((usdValueInCollateral / (10 ** 12)) * (10 ** 8)) / usdcPrice;
         console.log("usdcAmount: ", usdcAmount);
 
-        // IVelodromePair pool = IVelodromePair(veloUsdcErnPool);
-        // uint256 granularity = wrappedProxy.veloUsdcErnQuoteGranularity();
-        ReaperStrategyStabilityPool.TWAP currentTWAP = wrappedProxy.currentUsdcErnTWAP();
-        console.log("currentTWAP: ", uint256(currentTWAP));
-        uint256 ernAmount;
-        if (currentTWAP == ReaperStrategyStabilityPool.TWAP.UniV3) {
-            address[] memory pools = new address[](1);
-            pools[0] = address(uniV3UsdcErnPool);
-            uint32 twapPeriod = wrappedProxy.uniV3TWAPPeriod();
-            console.log("twapPeriod: ", twapPeriod);
-            ernAmount = IStaticOracle(uniV3TWAP).quoteSpecificPoolsWithTimePeriod(
-                uint128(usdcAmount), usdcAddress, wantAddress, pools, twapPeriod
-            );
-        } else if (currentTWAP == ReaperStrategyStabilityPool.TWAP.VeloV2) {
-            ernAmount = IVelodromePair(veloUsdcErnPool).quote(
-                usdcAddress, usdcAmount, wrappedProxy.veloUsdcErnQuoteGranularity()
-            );
-        }
+        address[] memory pools = new address[](1);
+        pools[0] = address(uniV3UsdcErnPool);
+        uint32 twapPeriod = wrappedProxy.uniV3TWAPPeriod();
+        console.log("twapPeriod: ", twapPeriod);
+        uint256 ernAmount = IStaticOracle(uniV3TWAP).quoteSpecificPoolsWithTimePeriod(
+            uint128(usdcAmount), usdcAddress, wantAddress, pools, twapPeriod
+        );
         uint256 wantValueInCollateral = wrappedProxy.getERNValueOfCollateralGain();
 
         console.log("ernAmount: ", ernAmount);

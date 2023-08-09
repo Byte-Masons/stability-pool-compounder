@@ -9,7 +9,6 @@ import {IPriceFeed} from "./interfaces/IPriceFeed.sol";
 import {IVault} from "vault-v2/interfaces/IVault.sol";
 import {AggregatorV3Interface} from "vault-v2/interfaces/AggregatorV3Interface.sol";
 import {ReaperMathUtils} from "vault-v2/libraries/ReaperMathUtils.sol";
-import {IVelodromePair} from "./interfaces/IVelodromePair.sol";
 import {IStaticOracle} from "./interfaces/IStaticOracle.sol";
 import {IUniswapV3Pool} from "./interfaces/IUniswapV3Pool.sol";
 import {IERC20MetadataUpgradeable} from "oz-upgradeable/token/ERC20/extensions/IERC20MetadataUpgradeable.sol";
@@ -29,16 +28,13 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     IPriceFeed public priceFeed;
     IERC20MetadataUpgradeable public usdc;
     ExchangeSettings public exchangeSettings; // Holds addresses to use Velo, UniV3 and Bal through Swapper
-    IVelodromePair public veloUsdcErnPool;
     IUniswapV3Pool public uniV3UsdcErnPool;
     IStaticOracle public uniV3TWAP;
 
     uint256 public constant ETHOS_DECIMALS = 18; // Decimals used by ETHOS
     uint256 public ernMinAmountOutBPS; // The max allowed slippage when trading in to ERN
     uint256 public compoundingFeeMarginBPS; // How much collateral value is lowered to account for the costs of swapping
-    uint256 public veloUsdcErnQuoteGranularity; // How many samples to look at for Velo pool TWAP
     uint32 public uniV3TWAPPeriod; // How many seconds the uniV3 TWAP will look at
-    TWAP public currentUsdcErnTWAP; // Which exchange is used to value ERN in terms of USDC
     ExchangeType public usdcToErnExchange; // Controls which exchange is used to swap USDC to ERN
 
     struct ExchangeSettings {
@@ -50,7 +46,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
 
     struct Pools {
         address stabilityPool;
-        address veloUsdcErnPool;
         address uniV3UsdcErnPool;
     }
 
@@ -67,8 +62,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     error InvalidUsdcToErnExchange(uint256 exchangeEnum);
     error InvalidUsdcToErnTWAP(uint256 twapEnum);
 
-    uint256 public allowedTWAPDiscrepancy; // % in BPS for the tolerated price discrepancy between TWAPs
-
     /**
      * @dev Initializes the strategy. Sets parameters, saves routes, and gives allowances.
      * @notice see documentation for each variable above its respective declaration.
@@ -83,9 +76,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         address _uniV3TWAP,
         ExchangeSettings calldata _exchangeSettings,
         Pools calldata _pools,
-        Tokens calldata _tokens,
-        TWAP _currentUsdcErnTWAP,
-        uint256 _allowedTWAPDiscrepancy
+        Tokens calldata _tokens
     ) public initializer {
         require(_vault != address(0), "vault is 0 address");
         require(_swapper != address(0), "swapper is 0 address");
@@ -100,7 +91,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         require(_exchangeSettings.uniV3Router != address(0), "uniV3Router is 0 address");
         require(_exchangeSettings.uniV2Router != address(0), "uniV2Router is 0 address");
         require(_pools.stabilityPool != address(0), "stabilityPool is 0 address");
-        require(_pools.veloUsdcErnPool != address(0), "veloUsdcErnPool is 0 address");
         require(_pools.uniV3UsdcErnPool != address(0), "uniV3UsdcErnPool is 0 address");
 
         __ReaperBaseStrategy_init(_vault, _swapper, _tokens.want, _strategists, _multisigRoles, _keepers);
@@ -113,13 +103,9 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         usdcToErnExchange = ExchangeType.UniV3;
 
         uniV3TWAP = IStaticOracle(_uniV3TWAP);
-        veloUsdcErnPool = IVelodromePair(_pools.veloUsdcErnPool);
         uniV3UsdcErnPool = IUniswapV3Pool(_pools.uniV3UsdcErnPool);
-        updateVeloUsdcErnQuoteGranularity(5);
         compoundingFeeMarginBPS = 9950;
-        currentUsdcErnTWAP = _currentUsdcErnTWAP;
         updateUniV3TWAPPeriod(7200);
-        updateAllowedTWAPDiscrepancy(_allowedTWAPDiscrepancy);
     }
 
     /**
@@ -178,7 +164,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     function _afterHarvestSwapSteps() internal override {
         uint256 usdcBalance = usdc.balanceOf(address(this));
         if (usdcBalance != 0) {
-            _revertOnTWAPDiscrepancy(usdcBalance);
             uint256 expectedErnAmount = _getErnAmountForUsdc(usdcBalance);
             uint256 minAmountOut = (expectedErnAmount * ernMinAmountOutBPS) / PERCENT_DIVISOR;
             MinAmountOutData memory data =
@@ -331,35 +316,13 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     }
 
     /**
-     * @dev Returns the {expectedErnAmount} for the specified {_usdcAmount} of USDC using either
-     * VeloV2 or UniV3 TWAP depending on the {currentUsdcErnTWAP} setting.
+     * @dev Returns the {expectedErnAmount} for the specified {_usdcAmount} of USDC using
+     * the UniV3 TWAP.
      */
     function _getErnAmountForUsdc(uint256 _usdcAmount) internal view returns (uint256 expectedErnAmount) {
         if (_usdcAmount != 0) {
-            if (currentUsdcErnTWAP == TWAP.VeloV2) {
-                expectedErnAmount = veloUsdcErnPool.quote(address(usdc), _usdcAmount, veloUsdcErnQuoteGranularity);
-            } else if (currentUsdcErnTWAP == TWAP.UniV3) {
-                expectedErnAmount = getErnAmountForUsdcUniV3(uint128(_usdcAmount), uniV3TWAPPeriod);
-            } else {
-                revert InvalidUsdcToErnTWAP(uint256(currentUsdcErnTWAP));
-            }
+            expectedErnAmount = getErnAmountForUsdcUniV3(uint128(_usdcAmount), uniV3TWAPPeriod);
         }
-    }
-
-    function _revertOnTWAPDiscrepancy(uint256 _usdcAmount) internal view {
-        uint256 veloPrice = veloUsdcErnPool.quote(address(usdc), _usdcAmount, veloUsdcErnQuoteGranularity);
-        uint256 uniPrice = getErnAmountForUsdcUniV3(uint128(_usdcAmount), uniV3TWAPPeriod);
-        uint256 highPrice;
-        uint256 lowPrice;
-        if (veloPrice > uniPrice) {
-            highPrice = veloPrice;
-            lowPrice = uniPrice;
-        } else {
-            highPrice = uniPrice;
-            lowPrice = veloPrice;
-        }
-        bool hasPriceDiscrepancy = lowPrice < highPrice * (PERCENT_DIVISOR - allowedTWAPDiscrepancy) / PERCENT_DIVISOR;
-        require(!hasPriceDiscrepancy, "TWAP price discrepancy");
     }
 
     /**
@@ -485,15 +448,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     }
 
     /**
-     * @dev Updates the granularity used to check Velodrome TWAP (larger value looks at more samples/longer time)
-     */
-    function updateVeloUsdcErnQuoteGranularity(uint256 _veloUsdcErnQuoteGranularity) public {
-        _atLeastRole(ADMIN);
-        require(_veloUsdcErnQuoteGranularity >= 5, "Granularity is too small");
-        veloUsdcErnQuoteGranularity = _veloUsdcErnQuoteGranularity;
-    }
-
-    /**
      * @dev Updates the value used to adjust the value of collateral down slightly (between 0-2%)
      * To account for swap fees and slippage to go from collateral to want
      */
@@ -518,25 +472,5 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         require(_uniV3TWAPPeriod >= 7200, "TWAP period is too short");
         getErnAmountForUsdcUniV3(uint128(1_000_000), _uniV3TWAPPeriod);
         uniV3TWAPPeriod = _uniV3TWAPPeriod;
-    }
-
-    /**
-     * @dev Sets which TWAP will be used to price USDC-ERN. Can currently
-     * be either UniV3 or VeloV2.
-     */
-    function updateCurrentUsdcErnTWAP(TWAP _currentUsdcErnTWAP) external {
-        _atLeastRole(ADMIN);
-        uint256 ernCollateralValue = getERNValueOfCollateralGainUsingPriceFeed();
-        require(ernCollateralValue == 0, "Cannot change TWAP with collateral value present");
-        currentUsdcErnTWAP = _currentUsdcErnTWAP;
-    }
-
-    /**
-     * @dev Sets the relative amount that TWAPs can differ without reverting harvest
-     */
-    function updateAllowedTWAPDiscrepancy(uint256 _allowedTWAPDiscrepancy) public {
-        _atLeastRole(ADMIN);
-        require(_allowedTWAPDiscrepancy >= 100 && _allowedTWAPDiscrepancy <= 1000, "Invalid discrepancy value");
-        allowedTWAPDiscrepancy = _allowedTWAPDiscrepancy;
     }
 }
