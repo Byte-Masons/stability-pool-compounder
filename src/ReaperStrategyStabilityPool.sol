@@ -36,6 +36,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     uint256 public compoundingFeeMarginBPS; // How much collateral value is lowered to account for the costs of swapping
     uint32 public uniV3TWAPPeriod; // How many seconds the uniV3 TWAP will look at
     ExchangeType public usdcToErnExchange; // Controls which exchange is used to swap USDC to ERN
+    bool public shouldOverrideHarvestBlock;
 
     struct ExchangeSettings {
         address veloRouter;
@@ -61,6 +62,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
 
     error InvalidUsdcToErnExchange(uint256 exchangeEnum);
     error InvalidUsdcToErnTWAP(uint256 twapEnum);
+    error TWAPOutsideAllowedRange(uint256 usdcPrice);
 
     /**
      * @dev Initializes the strategy. Sets parameters, saves routes, and gives allowances.
@@ -122,11 +124,12 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
      */
     function _beforeHarvestSwapSteps() internal override {
         _withdraw(0); // claim rewards
+        _revertOnTWAPOutsideRange();
     }
 
     function compound() public returns (uint256 usdcGained) {
         _atLeastRole(KEEPER);
-        _beforeHarvestSwapSteps();
+        _withdraw(0); // claim rewards
 
         uint256 usdcBalanceBefore = usdc.balanceOf(address(this));
         uint256 numSteps = swapSteps.length;
@@ -181,6 +184,19 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
             } else {
                 revert InvalidUsdcToErnExchange(uint256(usdcToErnExchange));
             }
+        }
+    }
+
+    function _revertOnTWAPOutsideRange() internal view {
+        uint128 ernAmount = 1 ether; // 1 ERN
+        address[] memory pools = new address[](1);
+        pools[0] = address(uniV3UsdcErnPool);
+        uint256 usdcAmount =
+            uniV3TWAP.quoteSpecificPoolsWithTimePeriod(ernAmount, want, address(usdc), pools, uniV3TWAPPeriod);
+        uint256 lowerBound = 980_000;
+        uint256 upperBound = 1_100_000;
+        if (!shouldOverrideHarvestBlock && (usdcAmount < lowerBound || usdcAmount > upperBound)) {
+            revert TWAPOutsideAllowedRange(usdcAmount);
         }
     }
 
@@ -472,5 +488,10 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         require(_uniV3TWAPPeriod >= 7200, "TWAP period is too short");
         getErnAmountForUsdcUniV3(uint128(1_000_000), _uniV3TWAPPeriod);
         uniV3TWAPPeriod = _uniV3TWAPPeriod;
+    }
+    
+    function updateShouldOverrideHarvestBlock(bool _shouldOverrideHarvestBlock) public {
+        _atLeastRole(DEFAULT_ADMIN_ROLE);
+        shouldOverrideHarvestBlock = _shouldOverrideHarvestBlock;
     }
 }
