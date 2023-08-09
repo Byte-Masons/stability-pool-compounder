@@ -55,11 +55,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         address usdc;
     }
 
-    enum TWAP {
-        UniV3,
-        VeloV2
-    }
-
     error InvalidUsdcToErnExchange(uint256 exchangeEnum);
     error InvalidUsdcToErnTWAP(uint256 twapEnum);
     error TWAPOutsideAllowedRange(uint256 usdcPrice);

@@ -149,7 +149,6 @@ contract ReaperStrategyStabilityPoolTest is Test {
         tokens.want = wantAddress;
         tokens.usdc = usdcAddress;
 
-        ReaperStrategyStabilityPool.TWAP currentUsdcErnTWAP = ReaperStrategyStabilityPool.TWAP.UniV3;
         uint256 allowedTWAPDiscrepancy = 500;
 
         wrappedProxy.initialize(
