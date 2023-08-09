@@ -63,6 +63,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     error InvalidUsdcToErnExchange(uint256 exchangeEnum);
     error InvalidUsdcToErnTWAP(uint256 twapEnum);
     error TWAPOutsideAllowedRange(uint256 usdcPrice);
+    error InvalidSwapStep();
 
     /**
      * @dev Initializes the strategy. Sets parameters, saves routes, and gives allowances.
@@ -420,6 +421,16 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
             scaledColl = scaledColl * (10 ** (_collDecimals - ETHOS_DECIMALS));
         } else if (_collDecimals < ETHOS_DECIMALS) {
             scaledColl = scaledColl / (10 ** (ETHOS_DECIMALS - _collDecimals));
+        }
+    }
+
+    /**
+     * Swapping to ERN (want) is hardcoded in this strategy and relies on TWAP so
+     * a swap step should not be set to swap to it.
+     */
+    function _verifySwapStepVirtual(SwapStep memory _step) internal override {
+        if(_step.end == want) {
+            revert InvalidSwapStep();
         }
     }
 
