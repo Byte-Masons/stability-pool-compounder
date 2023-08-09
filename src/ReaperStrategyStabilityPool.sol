@@ -132,29 +132,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         _withdraw(0); // claim rewards
 
         uint256 usdcBalanceBefore = usdc.balanceOf(address(this));
-        uint256 numSteps = swapSteps.length;
-        for (uint256 i = 0; i < numSteps; i = i.uncheckedInc()) {
-            SwapStep storage step = swapSteps[i];
-            IERC20MetadataUpgradeable startToken = IERC20MetadataUpgradeable(step.start);
-            uint256 amount = startToken.balanceOf(address(this));
-            if (amount == 0) {
-                continue;
-            }
-
-            startToken.safeApprove(address(swapper), 0);
-            startToken.safeIncreaseAllowance(address(swapper), amount);
-            if (step.exType == ExchangeType.UniV2) {
-                swapper.swapUniV2(step.start, step.end, amount, step.minAmountOutData, step.exchangeAddress);
-            } else if (step.exType == ExchangeType.Bal) {
-                swapper.swapBal(step.start, step.end, amount, step.minAmountOutData, step.exchangeAddress);
-            } else if (step.exType == ExchangeType.VeloSolid) {
-                swapper.swapVelo(step.start, step.end, amount, step.minAmountOutData, step.exchangeAddress);
-            } else if (step.exType == ExchangeType.UniV3) {
-                swapper.swapUniV3(step.start, step.end, amount, step.minAmountOutData, step.exchangeAddress);
-            } else {
-                revert InvalidExchangeType(uint256(step.exType));
-            }
-        }
+        _executeHarvestSwapSteps();
         usdcGained = usdc.balanceOf(address(this)) - usdcBalanceBefore;
     }
 
