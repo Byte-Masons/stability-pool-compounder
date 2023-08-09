@@ -13,7 +13,6 @@ import "vault-v2/interfaces/IVeloRouter.sol";
 import "src/mocks/MockAggregator.sol";
 import "src/interfaces/ITroveManager.sol";
 import "src/interfaces/IStabilityPool.sol";
-import "src/interfaces/IVelodromePair.sol";
 import "src/interfaces/IAggregatorAdmin.sol";
 import {IUniswapV3Pool} from "src/interfaces/IUniswapV3Pool.sol";
 import {IStaticOracle} from "src/interfaces/IStaticOracle.sol";
@@ -753,44 +752,6 @@ contract ReaperStrategyStabilityPoolTest is Test {
     //     console.log("sharePrice4: ", sharePrice4);
     //     assertGt(sharePrice4, sharePrice1);
     // }
-
-    function testVeloTWAP() public {
-        console.log("testVeloTWAP");
-        uint256 iterations = 20;
-        IVelodromePair pool = IVelodromePair(veloUsdcErnPool);
-        uint256 currentPrice = pool.getAmountOut(1 ether, address(want));
-        console.log("currentPrice: ", currentPrice);
-        for (uint256 index = 1; index < iterations; index++) {
-            uint256 currentPriceQuote = pool.quote(address(want), 1 ether, index);
-            console.log("currentPriceQuote", index);
-            console.log(currentPriceQuote);
-        }
-
-        address dumpourBob = makeAddr("bob");
-        uint256 usdcUnit = 10 ** 6;
-        uint256 usdcToDump = 4_000_000 * usdcUnit;
-        deal({token: usdcAddress, to: dumpourBob, give: usdcToDump});
-
-        IVeloRouter router = IVeloRouter(veloRouter);
-        IVeloRouter.Route[] memory routes = new IVeloRouter.Route[](1);
-        routes[0] = IVeloRouter.Route({from: usdcAddress, to: wantAddress, stable: true, factory: veloFactoryV2Default});
-        vm.startPrank(dumpourBob);
-        IERC20(usdcAddress).approve(veloRouter, usdcToDump);
-        uint256 minAmountOut = 0;
-        router.swapExactTokensForTokens(usdcToDump - usdcUnit, minAmountOut, routes, dumpourBob, block.timestamp);
-
-        uint256 timeToSkip = 60 * 30;
-        skip(timeToSkip);
-        router.swapExactTokensForTokens(usdcUnit, minAmountOut, routes, dumpourBob, block.timestamp);
-
-        uint256 dumpedPrice = pool.getAmountOut(1 ether, address(want));
-        console.log("dumpedPrice: ", dumpedPrice);
-        for (uint256 index = 1; index < iterations; index++) {
-            uint256 dumpedPriceQuote = pool.quote(address(want), 1 ether, index);
-            console.log("dumpedPriceQuote", index);
-            console.log(dumpedPriceQuote);
-        }
-    }
 
     function testUsdcBalanceCalculations() public {
         address usdcOracleOwner = 0xAbC73A7dbd0A1D6576d55F19809a6F017913C078;
