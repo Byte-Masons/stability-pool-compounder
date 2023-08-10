@@ -162,6 +162,9 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     }
 
     function _revertOnTWAPOutsideRange() internal view {
+        if (shouldOverrideHarvestBlock) {
+            return;
+        }
         uint128 ernAmount = 1 ether; // 1 ERN
         address[] memory pools = new address[](1);
         pools[0] = address(uniV3UsdcErnPool);
@@ -169,7 +172,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
             uniV3TWAP.quoteSpecificPoolsWithTimePeriod(ernAmount, want, address(usdc), pools, uniV3TWAPPeriod);
         uint256 lowerBound = 980_000;
         uint256 upperBound = 1_100_000;
-        if (!shouldOverrideHarvestBlock && (usdcAmount < lowerBound || usdcAmount > upperBound)) {
+        if (usdcAmount < lowerBound || usdcAmount > upperBound) {
             revert TWAPOutsideAllowedRange(usdcAmount);
         }
     }
