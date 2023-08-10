@@ -477,7 +477,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         uniV3TWAPPeriod = _uniV3TWAPPeriod;
     }
     
-    function updateShouldOverrideHarvestBlock(bool _shouldOverrideHarvestBlock) public {
+    function updateShouldOverrideHarvestBlock(bool _shouldOverrideHarvestBlock) external {
         _atLeastRole(DEFAULT_ADMIN_ROLE);
         shouldOverrideHarvestBlock = _shouldOverrideHarvestBlock;
     }
