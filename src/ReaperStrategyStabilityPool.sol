@@ -36,7 +36,9 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     uint256 public compoundingFeeMarginBPS; // How much collateral value is lowered to account for the costs of swapping
     uint32 public uniV3TWAPPeriod; // How many seconds the uniV3 TWAP will look at
     ExchangeType public usdcToErnExchange; // Controls which exchange is used to swap USDC to ERN
-    bool public shouldOverrideHarvestBlock;
+    bool public shouldOverrideHarvestBlock; // If reverts on TWAP out of normal range should be ignored
+    uint256 acceptableTWAPUpperBound; // The normal upper price for the TWAP, reverts harvest if above
+    uint256 acceptableTWAPLowerBound; // The normal lower price for the , reverts harvest if below
 
     struct ExchangeSettings {
         address veloRouter;
@@ -104,6 +106,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         uniV3UsdcErnPool = IUniswapV3Pool(_pools.uniV3UsdcErnPool);
         compoundingFeeMarginBPS = 9950;
         updateUniV3TWAPPeriod(7200);
+        updateAcceptableTWAPBounds(980_000,1_100_000);
     }
 
     /**
@@ -484,5 +487,19 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     function updateShouldOverrideHarvestBlock(bool _shouldOverrideHarvestBlock) external {
         _atLeastRole(DEFAULT_ADMIN_ROLE);
         shouldOverrideHarvestBlock = _shouldOverrideHarvestBlock;
+    }
+
+    /**
+     * @dev Defines the normal range of the TWAP, outside of which harvests will be reverted
+     * to protect against TWAP price manipulation.
+     */
+    function updateAcceptableTWAPBounds(uint256 _acceptableTWAPLowerBound, uint256 _acceptableTWAPUpperBound) public {
+        _atLeastRole(DEFAULT_ADMIN_ROLE);
+        bool aboveMinLimit = _acceptableTWAPLowerBound >= 900_000;
+        bool belowMaxLimit = _acceptableTWAPUpperBound <= 1_100_000;
+        bool hasValidBounds =_acceptableTWAPLowerBound< acceptableTWAPUpperBound && aboveMinLimit && belowMaxLimit;
+        require(hasValidBounds,"Invalid bounds");
+        acceptableTWAPLowerBound = _acceptableTWAPLowerBound;
+        acceptableTWAPUpperBound = _acceptableTWAPUpperBound;
     }
 }
