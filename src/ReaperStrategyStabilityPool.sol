@@ -106,7 +106,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         uniV3UsdcErnPool = IUniswapV3Pool(_pools.uniV3UsdcErnPool);
         compoundingFeeMarginBPS = 9950;
         updateUniV3TWAPPeriod(7200);
-        updateAcceptableTWAPBounds(980_000,1_100_000);
+        updateAcceptableTWAPBounds(980_000, 1_100_000);
     }
 
     /**
@@ -173,9 +173,8 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         pools[0] = address(uniV3UsdcErnPool);
         uint256 usdcAmount =
             uniV3TWAP.quoteSpecificPoolsWithTimePeriod(ernAmount, want, address(usdc), pools, uniV3TWAPPeriod);
-        uint256 lowerBound = 980_000;
-        uint256 upperBound = 1_100_000;
-        if (usdcAmount < lowerBound || usdcAmount > upperBound) {
+
+        if (usdcAmount < acceptableTWAPLowerBound || usdcAmount > acceptableTWAPUpperBound) {
             revert TWAPOutsideAllowedRange(usdcAmount);
         }
     }
@@ -497,8 +496,10 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         _atLeastRole(DEFAULT_ADMIN_ROLE);
         bool aboveMinLimit = _acceptableTWAPLowerBound >= 900_000;
         bool belowMaxLimit = _acceptableTWAPUpperBound <= 1_100_000;
-        bool hasValidBounds =_acceptableTWAPLowerBound< acceptableTWAPUpperBound && aboveMinLimit && belowMaxLimit;
-        require(hasValidBounds,"Invalid bounds");
+        bool lowerBoundBelowUpperBound = _acceptableTWAPLowerBound < _acceptableTWAPUpperBound;
+        bool hasValidBounds = lowerBoundBelowUpperBound && aboveMinLimit && belowMaxLimit;
+
+        require(hasValidBounds, "Invalid bounds");
         acceptableTWAPLowerBound = _acceptableTWAPLowerBound;
         acceptableTWAPUpperBound = _acceptableTWAPUpperBound;
     }
