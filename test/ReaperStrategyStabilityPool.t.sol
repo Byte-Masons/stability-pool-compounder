@@ -321,7 +321,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         IERC20Mintable(opAddress).approve(address(wrappedProxy), opBalance);
 
         wrappedProxy.updateErnMinAmountOutBPS(9950);
-        wrappedProxy.setUsdcToErnExchange(ReaperBaseStrategyv4.ExchangeType.VeloSolid);
+        wrappedProxy.updateUsdcToErnExchange(ReaperBaseStrategyv4.ExchangeType.VeloSolid);
 
         wbtcAggregator = AggregatorV3Interface(IPriceFeed(priceFeedAddress).priceAggregator(wbtcAddress));
         wethAggregator = AggregatorV3Interface(IPriceFeed(priceFeedAddress).priceAggregator(wethAddress));

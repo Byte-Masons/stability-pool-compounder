@@ -445,7 +445,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     /**
      * @dev Sets the exchange used to swap USDC to ERN/want (can be Velo, UniV3, Balancer)
      */
-    function setUsdcToErnExchange(ExchangeType _exchange) external {
+    function updateUsdcToErnExchange(ExchangeType _exchange) external {
         _atLeastRole(STRATEGIST);
         usdcToErnExchange = _exchange;
     }
@@ -476,7 +476,11 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         getErnAmountForUsdcUniV3(uint128(1_000_000), _uniV3TWAPPeriod);
         uniV3TWAPPeriod = _uniV3TWAPPeriod;
     }
-    
+
+    /**
+     * @dev Sets if harvest reverts on TWAP being outside of the normal range should
+     * be overriden (ignored).
+     */
     function updateShouldOverrideHarvestBlock(bool _shouldOverrideHarvestBlock) external {
         _atLeastRole(DEFAULT_ADMIN_ROLE);
         shouldOverrideHarvestBlock = _shouldOverrideHarvestBlock;
