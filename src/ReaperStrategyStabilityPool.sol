@@ -429,7 +429,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
      * a swap step should not be set to swap to it.
      */
     function _verifySwapStepVirtual(SwapStep memory _step) internal override {
-        if(_step.end == want) {
+        if (_step.end == want) {
             revert InvalidSwapStep();
         }
     }

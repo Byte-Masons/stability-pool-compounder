@@ -113,9 +113,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
     function setUp() public {
         // Forking
         string memory rpc = vm.envString("RPC");
-        optimismFork = vm.createSelectFork(
-            rpc, 107994026
-        );
+        optimismFork = vm.createSelectFork(rpc, 107994026);
         assertEq(vm.activeFork(), optimismFork);
 
         // // Deploying stuff
