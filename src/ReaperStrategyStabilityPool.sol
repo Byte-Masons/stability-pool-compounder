@@ -14,6 +14,7 @@ import {IUniswapV3Pool} from "./interfaces/IUniswapV3Pool.sol";
 import {IERC20MetadataUpgradeable} from "oz-upgradeable/token/ERC20/extensions/IERC20MetadataUpgradeable.sol";
 import {SafeERC20Upgradeable} from "oz-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 import {MathUpgradeable} from "oz-upgradeable/utils/math/MathUpgradeable.sol";
+import "forge-std/console.sol";
 
 /**
  * @dev Strategy to compound rewards and liquidation collateral gains in the Ethos stability pool
@@ -471,12 +472,31 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
      * increaseObservationCardinalityNext on the UniV3 pool.
      * The earliest observation in the pool must be within the given time period.
      * Will revert if the observation period is too long.
+     * DEFAULT_ADMIN is allowed to change the value regardless, but for lower access
+     * roles a check is performed to see if changing duration would effect the price
+     * past some threshold, if the strategy holds collateral value (priced by TWAP).
      */
     function updateUniV3TWAPPeriod(uint32 _uniV3TWAPPeriod) public {
         _atLeastRole(ADMIN);
         require(_uniV3TWAPPeriod >= 7200, "TWAP period is too short");
-        getErnAmountForUsdcUniV3(uint128(1_000_000), _uniV3TWAPPeriod);
+
+        if (_hasRole(DEFAULT_ADMIN_ROLE, msg.sender)) {
+            uniV3TWAPPeriod = _uniV3TWAPPeriod;
+            return;
+        }
+
+        uint256 oldErnAmount = getErnAmountForUsdcUniV3(uint128(1_000_000), uniV3TWAPPeriod);
+        bool isDecrease = _uniV3TWAPPeriod < uniV3TWAPPeriod;
         uniV3TWAPPeriod = _uniV3TWAPPeriod;
+
+        uint256 ernCollateralValue = getERNValueOfCollateralGainUsingPriceFeed();
+
+        if (isDecrease && ernCollateralValue != 0) {
+            uint256 newErnAmount = getErnAmountForUsdcUniV3(uint128(1_000_000), _uniV3TWAPPeriod);
+            uint256 difference = newErnAmount > oldErnAmount ? newErnAmount - oldErnAmount : oldErnAmount - newErnAmount;
+            uint256 relativeChange = difference * PERCENT_DIVISOR / oldErnAmount;
+            require(relativeChange < 100, "TWAP duration change would change price");
+        }
     }
 
     /**

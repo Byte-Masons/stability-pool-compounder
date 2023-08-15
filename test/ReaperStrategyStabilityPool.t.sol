@@ -1126,6 +1126,36 @@ contract ReaperStrategyStabilityPoolTest is Test {
         wrappedProxy.updateUniV3TWAPPeriod(period);
     }
 
+    function testDecreaseTWAPPeriod() public {
+        uint32 oldPeriod = 36000;
+        wrappedProxy.updateUniV3TWAPPeriod(oldPeriod);
+
+        uint256 usdcInPool = IERC20Upgradeable(usdcAddress).balanceOf(uniV3UsdcErnPool);
+        console.log("usdcInPool: ", usdcInPool);
+        uint256 usdcToDump = usdcInPool * 9999 / 10_000;
+        deal({token: usdcAddress, to: address(this), give: usdcToDump * 100});
+        uint256 nrOfSwaps = 100;
+
+        _skipBlockAndTime(1);
+        for (uint256 index = 0; index < nrOfSwaps; index++) {
+            _swapUsdcToErnUniV3(usdcToDump / nrOfSwaps);
+            _skipBlockAndTime(1);
+        }
+
+        uint32 newPeriod = 7200;
+        // DEFAULT_ADMIN_ROLE is allowed regardless
+        wrappedProxy.updateUniV3TWAPPeriod(newPeriod);
+        wrappedProxy.updateUniV3TWAPPeriod(oldPeriod);
+        // 0 collateral value is allowed regardless
+        vm.startPrank(adminAddress);
+        wrappedProxy.updateUniV3TWAPPeriod(newPeriod);
+        wrappedProxy.updateUniV3TWAPPeriod(oldPeriod);
+        // ADMIN role with collateral is blocked
+        deal({token: usdcAddress, to: address(wrappedProxy), give: 1_000_000});
+        vm.expectRevert("TWAP duration change would change price");
+        wrappedProxy.updateUniV3TWAPPeriod(newPeriod);
+    }
+
     function liquidateTroves(address asset) internal {
         ITroveManager(troveManager).liquidateTroves(asset, 100);
     }
