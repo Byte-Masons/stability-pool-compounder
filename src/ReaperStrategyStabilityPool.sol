@@ -485,16 +485,15 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         }
 
         uint256 oldErnAmount = getErnAmountForUsdcUniV3(uint128(1_000_000), uniV3TWAPPeriod);
-        bool isDecrease = _uniV3TWAPPeriod < uniV3TWAPPeriod;
         uniV3TWAPPeriod = _uniV3TWAPPeriod;
 
         uint256 ernCollateralValue = getERNValueOfCollateralGainUsingPriceFeed();
 
-        if (isDecrease && ernCollateralValue != 0) {
+        if (ernCollateralValue != 0) {
             uint256 newErnAmount = getErnAmountForUsdcUniV3(uint128(1_000_000), _uniV3TWAPPeriod);
             uint256 difference = newErnAmount > oldErnAmount ? newErnAmount - oldErnAmount : oldErnAmount - newErnAmount;
             uint256 relativeChange = difference * PERCENT_DIVISOR / oldErnAmount;
-            require(relativeChange < 100, "TWAP duration change would change price");
+            require(relativeChange < 300, "TWAP duration change would change price");
         }
     }
 

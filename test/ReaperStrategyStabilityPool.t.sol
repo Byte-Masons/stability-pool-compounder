@@ -1126,7 +1126,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         wrappedProxy.updateUniV3TWAPPeriod(period);
     }
 
-    function testDecreaseTWAPPeriod() public {
+    function testChangeTWAPPeriod() public {
         uint32 oldPeriod = 36000;
         wrappedProxy.updateUniV3TWAPPeriod(oldPeriod);
 
