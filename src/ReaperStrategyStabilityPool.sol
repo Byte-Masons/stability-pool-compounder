@@ -441,8 +441,8 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     function updateErnMinAmountOutBPS(uint256 _ernMinAmountOutBPS) public {
         _atLeastRole(STRATEGIST);
         require(_ernMinAmountOutBPS > 8000 && _ernMinAmountOutBPS < PERCENT_DIVISOR, "Invalid slippage value");
-        if (_hasRole(STRATEGIST, msg.sender) || _hasRole(GUARDIAN, msg.sender)) {
-            require(_ernMinAmountOutBPS >= 9500, "Invalid slippage value");
+        if (_ernMinAmountOutBPS < 9500) {
+            _atLeastRole(ADMIN);
         }
         ernMinAmountOutBPS = _ernMinAmountOutBPS;
     }
