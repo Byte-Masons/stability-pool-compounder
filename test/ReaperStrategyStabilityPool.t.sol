@@ -1121,7 +1121,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         vm.expectRevert(bytes("OLD"));
         wrappedProxy.updateUniV3TWAPPeriod(period);
 
-        period = 999999999;
+        period = type(uint32).max;
         vm.expectRevert(bytes("OLD"));
         wrappedProxy.updateUniV3TWAPPeriod(period);
     }

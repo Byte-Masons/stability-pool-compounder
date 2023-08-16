@@ -428,7 +428,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
      * Swapping to ERN (want) is hardcoded in this strategy and relies on TWAP so
      * a swap step should not be set to swap to it.
      */
-    function _verifySwapStepVirtual(SwapStep memory _step) internal override {
+    function _verifySwapStepVirtual(SwapStep memory _step) internal view override {
         if (_step.end == want) {
             revert InvalidSwapStep();
         }
@@ -479,18 +479,19 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         _atLeastRole(ADMIN);
         require(_uniV3TWAPPeriod >= 7200, "TWAP period is too short");
 
+        uint256 newErnAmount = getErnAmountForUsdcUniV3(uint128(1_000_000), _uniV3TWAPPeriod);
+        uint256 oldErnAmount = getErnAmountForUsdcUniV3(uint128(1_000_000), uniV3TWAPPeriod);
+
         if (_hasRole(DEFAULT_ADMIN_ROLE, msg.sender)) {
             uniV3TWAPPeriod = _uniV3TWAPPeriod;
             return;
         }
 
-        uint256 oldErnAmount = getErnAmountForUsdcUniV3(uint128(1_000_000), uniV3TWAPPeriod);
         uniV3TWAPPeriod = _uniV3TWAPPeriod;
 
         uint256 ernCollateralValue = getERNValueOfCollateralGainUsingPriceFeed();
 
         if (ernCollateralValue != 0) {
-            uint256 newErnAmount = getErnAmountForUsdcUniV3(uint128(1_000_000), _uniV3TWAPPeriod);
             uint256 difference = newErnAmount > oldErnAmount ? newErnAmount - oldErnAmount : oldErnAmount - newErnAmount;
             uint256 relativeChange = difference * PERCENT_DIVISOR / oldErnAmount;
             require(relativeChange < 300, "TWAP duration change would change price");
