@@ -99,7 +99,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         usdc = IERC20MetadataUpgradeable(_tokens.usdc);
         exchangeSettings = _exchangeSettings;
 
-        ernMinAmountOutBPS = 9800;
+        updateErnMinAmountOutBPS(9800);
         usdcToErnExchange = ExchangeType.UniV3;
 
         uniV3TWAP = IStaticOracle(_uniV3TWAP);
@@ -438,9 +438,12 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
      * @dev Updates the {ernMinAmountOutBPS} which is the minimum amount accepted in a USDC->ERN/want swap.
      * In BPS so 9500 would allow a 5% slippage.
      */
-    function updateErnMinAmountOutBPS(uint256 _ernMinAmountOutBPS) external {
+    function updateErnMinAmountOutBPS(uint256 _ernMinAmountOutBPS) public {
         _atLeastRole(STRATEGIST);
         require(_ernMinAmountOutBPS > 8000 && _ernMinAmountOutBPS < PERCENT_DIVISOR, "Invalid slippage value");
+        if (_hasRole(STRATEGIST, msg.sender) || _hasRole(GUARDIAN, msg.sender)) {
+            require(_ernMinAmountOutBPS >= 9500, "Invalid slippage value");
+        }
         ernMinAmountOutBPS = _ernMinAmountOutBPS;
     }
 
