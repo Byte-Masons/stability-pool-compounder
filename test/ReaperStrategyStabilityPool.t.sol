@@ -1154,6 +1154,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
         deal({token: usdcAddress, to: address(wrappedProxy), give: 1_000_000});
         vm.expectRevert("TWAP duration change would change price");
         wrappedProxy.updateUniV3TWAPPeriod(newPeriod);
+        vm.stopPrank();
+        wrappedProxy.updateUniV3TWAPPeriod(oldPeriod);
     }
 
     function liquidateTroves(address asset) internal {

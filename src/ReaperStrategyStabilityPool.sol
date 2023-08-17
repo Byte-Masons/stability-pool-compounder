@@ -485,12 +485,9 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         uint256 newErnAmount = getErnAmountForUsdcUniV3(uint128(1_000_000), _uniV3TWAPPeriod);
         uint256 oldErnAmount = getErnAmountForUsdcUniV3(uint128(1_000_000), uniV3TWAPPeriod);
 
-        if (_hasRole(DEFAULT_ADMIN_ROLE, msg.sender)) {
-            uniV3TWAPPeriod = _uniV3TWAPPeriod;
-            return;
-        }
-
         uniV3TWAPPeriod = _uniV3TWAPPeriod;
+
+        if (_hasRole(DEFAULT_ADMIN_ROLE, msg.sender)) return;
 
         uint256 ernCollateralValue = getERNValueOfCollateralGainUsingPriceFeed();
 
