@@ -8,17 +8,19 @@ import {IStabilityPool} from "./interfaces/IStabilityPool.sol";
 import {IPriceFeed} from "./interfaces/IPriceFeed.sol";
 import {IVault} from "vault-v2/interfaces/IVault.sol";
 import {AggregatorV3Interface} from "vault-v2/interfaces/AggregatorV3Interface.sol";
-import {IVelodromePair} from "./interfaces/IVelodromePair.sol";
+import {ReaperMathUtils} from "vault-v2/libraries/ReaperMathUtils.sol";
 import {IStaticOracle} from "./interfaces/IStaticOracle.sol";
 import {IUniswapV3Pool} from "./interfaces/IUniswapV3Pool.sol";
 import {IERC20MetadataUpgradeable} from "oz-upgradeable/token/ERC20/extensions/IERC20MetadataUpgradeable.sol";
 import {SafeERC20Upgradeable} from "oz-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 import {MathUpgradeable} from "oz-upgradeable/utils/math/MathUpgradeable.sol";
+
 /**
  * @dev Strategy to compound rewards and liquidation collateral gains in the Ethos stability pool
  */
 
 contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
+    using ReaperMathUtils for uint256;
     using SafeERC20Upgradeable for IERC20MetadataUpgradeable;
 
     // 3rd-party contract addresses
@@ -26,18 +28,17 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     IPriceFeed public priceFeed;
     IERC20MetadataUpgradeable public usdc;
     ExchangeSettings public exchangeSettings; // Holds addresses to use Velo, UniV3 and Bal through Swapper
-    IVelodromePair public veloUsdcErnPool;
     IUniswapV3Pool public uniV3UsdcErnPool;
     IStaticOracle public uniV3TWAP;
 
     uint256 public constant ETHOS_DECIMALS = 18; // Decimals used by ETHOS
-    uint32 public constant CARDINALITY_PER_MINUTE = 30; // Optimism after bedrock update produces a block every 2 seconds
     uint256 public ernMinAmountOutBPS; // The max allowed slippage when trading in to ERN
     uint256 public compoundingFeeMarginBPS; // How much collateral value is lowered to account for the costs of swapping
-    uint256 public veloUsdcErnQuoteGranularity; // How many samples to look at for Velo pool TWAP
     uint32 public uniV3TWAPPeriod; // How many seconds the uniV3 TWAP will look at
-    TWAP public currentUsdcErnTWAP; // Which exchange is used to value ERN in terms of USDC
     ExchangeType public usdcToErnExchange; // Controls which exchange is used to swap USDC to ERN
+    bool public shouldOverrideHarvestBlock; // If reverts on TWAP out of normal range should be ignored
+    uint256 acceptableTWAPUpperBound; // The normal upper price for the TWAP, reverts harvest if above
+    uint256 acceptableTWAPLowerBound; // The normal lower price for the , reverts harvest if below
 
     struct ExchangeSettings {
         address veloRouter;
@@ -48,7 +49,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
 
     struct Pools {
         address stabilityPool;
-        address veloUsdcErnPool;
         address uniV3UsdcErnPool;
     }
 
@@ -57,13 +57,10 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         address usdc;
     }
 
-    enum TWAP {
-        UniV3,
-        VeloV2
-    }
-
     error InvalidUsdcToErnExchange(uint256 exchangeEnum);
     error InvalidUsdcToErnTWAP(uint256 twapEnum);
+    error TWAPOutsideAllowedRange(uint256 usdcPrice);
+    error InvalidSwapStep();
 
     /**
      * @dev Initializes the strategy. Sets parameters, saves routes, and gives allowances.
@@ -79,8 +76,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         address _uniV3TWAP,
         ExchangeSettings calldata _exchangeSettings,
         Pools calldata _pools,
-        Tokens calldata _tokens,
-        TWAP _currentUsdcErnTWAP
+        Tokens calldata _tokens
     ) public initializer {
         require(_vault != address(0), "vault is 0 address");
         require(_swapper != address(0), "swapper is 0 address");
@@ -95,7 +91,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         require(_exchangeSettings.uniV3Router != address(0), "uniV3Router is 0 address");
         require(_exchangeSettings.uniV2Router != address(0), "uniV2Router is 0 address");
         require(_pools.stabilityPool != address(0), "stabilityPool is 0 address");
-        require(_pools.veloUsdcErnPool != address(0), "veloUsdcErnPool is 0 address");
         require(_pools.uniV3UsdcErnPool != address(0), "uniV3UsdcErnPool is 0 address");
 
         __ReaperBaseStrategy_init(_vault, _swapper, _tokens.want, _strategists, _multisigRoles, _keepers);
@@ -104,16 +99,14 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         usdc = IERC20MetadataUpgradeable(_tokens.usdc);
         exchangeSettings = _exchangeSettings;
 
-        ernMinAmountOutBPS = 9800;
+        updateErnMinAmountOutBPS(9800);
         usdcToErnExchange = ExchangeType.UniV3;
 
         uniV3TWAP = IStaticOracle(_uniV3TWAP);
-        veloUsdcErnPool = IVelodromePair(_pools.veloUsdcErnPool);
         uniV3UsdcErnPool = IUniswapV3Pool(_pools.uniV3UsdcErnPool);
-        veloUsdcErnQuoteGranularity = 2;
         compoundingFeeMarginBPS = 9950;
-        currentUsdcErnTWAP = _currentUsdcErnTWAP;
-        updateUniV3TWAPPeriod(2);
+        updateUniV3TWAPPeriod(7200);
+        updateAcceptableTWAPBounds(980_000, 1_100_000);
     }
 
     /**
@@ -130,12 +123,22 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
      */
     function _beforeHarvestSwapSteps() internal override {
         _withdraw(0); // claim rewards
+        _revertOnTWAPOutsideRange();
+    }
+
+    function compound() public returns (uint256 usdcGained) {
+        _atLeastRole(KEEPER);
+        _withdraw(0); // claim rewards
+
+        uint256 usdcBalanceBefore = usdc.balanceOf(address(this));
+        _executeHarvestSwapSteps();
+        usdcGained = usdc.balanceOf(address(this)) - usdcBalanceBefore;
     }
 
     // Swap steps will:
     // 1. liquidate collateral rewards into USDC using the external Swapper (+ Chainlink oracles)
     // 2. liquidate oath rewards into USDC using the external swapper (with 0 minAmountOut)
-    // As a final step, we need to convert the USDC into ERN using Velodrome's TWAP.
+    // As a final step, we need to convert the USDC into ERN using the UniV3 TWAP.
     // Since the external Swapper cannot support arbitrary TWAPs at this time, we use this hook so
     // we can calculate the minAmountOut ourselves and call the swapper directly.
     function _afterHarvestSwapSteps() internal override {
@@ -158,6 +161,21 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
             } else {
                 revert InvalidUsdcToErnExchange(uint256(usdcToErnExchange));
             }
+        }
+    }
+
+    function _revertOnTWAPOutsideRange() internal view {
+        if (shouldOverrideHarvestBlock) {
+            return;
+        }
+        uint128 ernAmount = 1 ether; // 1 ERN
+        address[] memory pools = new address[](1);
+        pools[0] = address(uniV3UsdcErnPool);
+        uint256 usdcAmount =
+            uniV3TWAP.quoteSpecificPoolsWithTimePeriod(ernAmount, want, address(usdc), pools, uniV3TWAPPeriod);
+
+        if (usdcAmount < acceptableTWAPLowerBound || usdcAmount > acceptableTWAPUpperBound) {
+            revert TWAPOutsideAllowedRange(usdcAmount);
         }
     }
 
@@ -293,18 +311,12 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     }
 
     /**
-     * @dev Returns the {expectedErnAmount} for the specified {_usdcAmount} of USDC using either
-     * VeloV2 or UniV3 TWAP depending on the {currentUsdcErnTWAP} setting.
+     * @dev Returns the {expectedErnAmount} for the specified {_usdcAmount} of USDC using
+     * the UniV3 TWAP.
      */
     function _getErnAmountForUsdc(uint256 _usdcAmount) internal view returns (uint256 expectedErnAmount) {
         if (_usdcAmount != 0) {
-            if (currentUsdcErnTWAP == TWAP.VeloV2) {
-                expectedErnAmount = veloUsdcErnPool.quote(address(usdc), _usdcAmount, veloUsdcErnQuoteGranularity);
-            } else if (currentUsdcErnTWAP == TWAP.UniV3) {
-                expectedErnAmount = getErnAmountForUsdcUniV3(uint128(_usdcAmount), uniV3TWAPPeriod);
-            } else {
-                revert InvalidUsdcToErnTWAP(uint256(currentUsdcErnTWAP));
-            }
+            expectedErnAmount = getErnAmountForUsdcUniV3(uint128(_usdcAmount), uniV3TWAPPeriod);
         }
     }
 
@@ -413,30 +425,34 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     }
 
     /**
+     * Swapping to ERN (want) is hardcoded in this strategy and relies on TWAP so
+     * a swap step should not be set to swap to it.
+     */
+    function _verifySwapStepVirtual(SwapStep memory _step) internal view override {
+        if (_step.end == want) {
+            revert InvalidSwapStep();
+        }
+    }
+
+    /**
      * @dev Updates the {ernMinAmountOutBPS} which is the minimum amount accepted in a USDC->ERN/want swap.
      * In BPS so 9500 would allow a 5% slippage.
      */
-    function updateErnMinAmountOutBPS(uint256 _ernMinAmountOutBPS) external {
+    function updateErnMinAmountOutBPS(uint256 _ernMinAmountOutBPS) public {
         _atLeastRole(STRATEGIST);
         require(_ernMinAmountOutBPS > 8000 && _ernMinAmountOutBPS < PERCENT_DIVISOR, "Invalid slippage value");
+        if (_ernMinAmountOutBPS < 9500) {
+            _atLeastRole(ADMIN);
+        }
         ernMinAmountOutBPS = _ernMinAmountOutBPS;
     }
 
     /**
      * @dev Sets the exchange used to swap USDC to ERN/want (can be Velo, UniV3, Balancer)
      */
-    function setUsdcToErnExchange(ExchangeType _exchange) external {
+    function updateUsdcToErnExchange(ExchangeType _exchange) external {
         _atLeastRole(STRATEGIST);
         usdcToErnExchange = _exchange;
-    }
-
-    /**
-     * @dev Updates the granularity used to check Velodrome TWAP (larger value looks at more samples/longer time)
-     */
-    function updateVeloUsdcErnQuoteGranularity(uint256 _veloUsdcErnQuoteGranularity) external {
-        _atLeastRole(STRATEGIST);
-        require(_veloUsdcErnQuoteGranularity >= 2 && _veloUsdcErnQuoteGranularity <= 10, "Invalid granularity value");
-        veloUsdcErnQuoteGranularity = _veloUsdcErnQuoteGranularity;
     }
 
     /**
@@ -458,19 +474,52 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
      * increaseObservationCardinalityNext on the UniV3 pool.
      * The earliest observation in the pool must be within the given time period.
      * Will revert if the observation period is too long.
+     * DEFAULT_ADMIN is allowed to change the value regardless, but for lower access
+     * roles a check is performed to see if changing duration would effect the price
+     * past some threshold, if the strategy holds collateral value (priced by TWAP).
      */
     function updateUniV3TWAPPeriod(uint32 _uniV3TWAPPeriod) public {
         _atLeastRole(ADMIN);
-        getErnAmountForUsdcUniV3(uint128(1_000_000), _uniV3TWAPPeriod);
+        require(_uniV3TWAPPeriod >= 7200, "TWAP period is too short");
+
+        uint256 newErnAmount = getErnAmountForUsdcUniV3(uint128(1_000_000), _uniV3TWAPPeriod);
+        uint256 oldErnAmount = getErnAmountForUsdcUniV3(uint128(1_000_000), uniV3TWAPPeriod);
+
         uniV3TWAPPeriod = _uniV3TWAPPeriod;
+
+        if (_hasRole(DEFAULT_ADMIN_ROLE, msg.sender)) return;
+
+        uint256 ernCollateralValue = getERNValueOfCollateralGainUsingPriceFeed();
+
+        if (ernCollateralValue != 0) {
+            uint256 difference = newErnAmount > oldErnAmount ? newErnAmount - oldErnAmount : oldErnAmount - newErnAmount;
+            uint256 relativeChange = difference * PERCENT_DIVISOR / oldErnAmount;
+            require(relativeChange < 300, "TWAP duration change would change price");
+        }
     }
 
     /**
-     * @dev Sets which TWAP will be used to price USDC-ERN. Can currently
-     * be either UniV3 or VeloV2.
+     * @dev Sets if harvest reverts on TWAP being outside of the normal range should
+     * be overriden (ignored).
      */
-    function updateCurrentUsdcErnTWAP(TWAP _currentUsdcErnTWAP) external {
-        _atLeastRole(GUARDIAN);
-        currentUsdcErnTWAP = _currentUsdcErnTWAP;
+    function updateShouldOverrideHarvestBlock(bool _shouldOverrideHarvestBlock) external {
+        _atLeastRole(DEFAULT_ADMIN_ROLE);
+        shouldOverrideHarvestBlock = _shouldOverrideHarvestBlock;
+    }
+
+    /**
+     * @dev Defines the normal range of the TWAP, outside of which harvests will be reverted
+     * to protect against TWAP price manipulation.
+     */
+    function updateAcceptableTWAPBounds(uint256 _acceptableTWAPLowerBound, uint256 _acceptableTWAPUpperBound) public {
+        _atLeastRole(DEFAULT_ADMIN_ROLE);
+        bool aboveMinLimit = _acceptableTWAPLowerBound >= 900_000;
+        bool belowMaxLimit = _acceptableTWAPUpperBound <= 1_100_000;
+        bool lowerBoundBelowUpperBound = _acceptableTWAPLowerBound < _acceptableTWAPUpperBound;
+        bool hasValidBounds = lowerBoundBelowUpperBound && aboveMinLimit && belowMaxLimit;
+
+        require(hasValidBounds, "Invalid bounds");
+        acceptableTWAPLowerBound = _acceptableTWAPLowerBound;
+        acceptableTWAPUpperBound = _acceptableTWAPUpperBound;
     }
 }
