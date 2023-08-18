@@ -2,7 +2,6 @@ const {ethers, upgrades} = require("hardhat");
 
 async function main() {
   
-
   const Strategy = await ethers.getContractFactory("ReaperStrategyStabilityPool");
 
   const vaultAddress = "0x3eE6107d9C93955acBb3f39871D32B02F82B78AB";
@@ -54,11 +53,9 @@ async function main() {
   };
 
   const stabilityPool = "0x8B147A2d4Fc3598079C64b8BF9Ad2f776786CFed";
-  const veloUsdcErnPool = "0x55624DC97289A19045b4739627BEaEB1E70Ab64c";
   const uniV3UsdcErnPool = "0x4CE4a1a593Ea9f2e6B2c05016a00a2D300C9fFd8";
   const pools = {
     stabilityPool,
-    veloUsdcErnPool,
     uniV3UsdcErnPool,
   };
 
@@ -68,9 +65,6 @@ async function main() {
     want,
     usdc,
   };
-
-  const uniV3Twap = 0;
-  const currentUsdcErnTWAP = uniV3Twap;
 
   const strategy = await upgrades.deployProxy(
     Strategy,
@@ -85,7 +79,6 @@ async function main() {
       exchangeSettings,
       pools,
       tokens,
-      currentUsdcErnTWAP,
     ],
     {kind: "uups", timeout: 0},
   );
