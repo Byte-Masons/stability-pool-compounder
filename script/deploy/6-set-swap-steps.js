@@ -3,7 +3,7 @@ const {ethers} = require("hardhat");
 async function main() {
   const Strategy = await ethers.getContractFactory("ReaperStrategyStabilityPool");
 
-  const strategyAddress = "0x766Da60CC688E45B5948F05cb947D3B8Df7274f5";
+  const strategyAddress = "0xFBD08A6869D3e4EC8A21895c1e269f4b980813f0";
   const strategy = Strategy.attach(strategyAddress);
 
   const usdcAddress = "0x7F5c764cBc14f9669B88837ca1490cCa17c31607";
