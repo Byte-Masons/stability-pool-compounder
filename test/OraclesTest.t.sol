@@ -3,15 +3,12 @@ pragma solidity ^0.8.0;
 
 import "forge-std/Test.sol";
 import "src/ReaperStrategyStabilityPool.sol";
-// import "tarot-oracle/TarotPriceOracleVolatile.sol";
 import "vault-v2/ReaperVaultV2.sol";
 import {IERC20Upgradeable} from "oz-upgradeable/token/ERC20/IERC20Upgradeable.sol";
 import {ERC1967Proxy} from "oz/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC20} from "oz/token/ERC20/IERC20.sol";
 import {ReaperSwapper, MinAmountOutData, MinAmountOutKind} from "vault-v2/ReaperSwapper.sol";
 import {IVeloRouter} from "vault-v2/interfaces/IVeloRouter.sol";
-// import "tarot-oracle/interfaces/IVeloPair.sol";
-import {Pool} from "tarot-oracle/toWatch/Pool.sol";
 
 contract TarotOracleTest is Test {
     uint256 FORK_BLOCK = 115641661;
@@ -82,7 +79,6 @@ contract TarotOracleTest is Test {
     // TarotPriceOracleVolatile tarot;
 
     function setUp() public {
-        Pool pool = new Pool();
         // address[] memory strategists = new address[](1);
         // strategists[0] = makeAddr("strategist1");
         //0x95885Af5492195F0754bE71AD1545Fe81364E531
@@ -156,10 +152,10 @@ contract TarotOracleTest is Test {
         );
     }
 
-    function testMultipleOracles(uint128 baseAmount, uint32 period) public {
+    function testMultipleOracles_Positive(uint128 baseAmount, uint32 period) public {
         baseAmount = uint128(bound(baseAmount, 1, 10_000 ether));
         period = uint32(bound(period, 2 days, 9 days));
-        uint32 tolerance = 5000;
+        uint32 tolerance = 500;
         // console2.log("1. Pool address: ", veloUsdcErnPool);
         // console2.log("1. USDC address: ", usdcAddress);
         // prices = IVeloPair(veloUsdcErnPool).sample(usdcAddress, 1e6, 1, 2);
@@ -176,9 +172,30 @@ contract TarotOracleTest is Test {
         uint256 finalPrice = wrappedProxy.getErnAmountForUsdcAll(prices, baseAmount, period, tolerance);
         // console2.log("1.Price All: ", wrappedProxy.getErnAmountForUsdcAll(baseAmount, period));
         console2.log("2.Price All: ", finalPrice);
-        uint256 highBoundary = (baseAmount * 1e12) + ((baseAmount * 1e12) * tolerance) / 100_000;
-        uint256 lowBoundary = (baseAmount * 1e12) - ((baseAmount * 1e12) * tolerance) / 100_000;
+        uint256 highBoundary = (baseAmount * 1e12) + ((baseAmount * 1e12) * tolerance) / 10_000;
+        uint256 lowBoundary = (baseAmount * 1e12) - ((baseAmount * 1e12) * tolerance) / 10_000;
         assert(finalPrice < highBoundary && finalPrice > lowBoundary);
+    }
+
+    function testMultipleOracles_Negative(uint128 baseAmount, uint32 period) public {
+        baseAmount = uint128(bound(baseAmount, 1, 10_000 ether));
+        period = uint32(bound(period, 2 days, 9 days));
+        uint32 tolerance = 300;
+        // console2.log("1. Pool address: ", veloUsdcErnPool);
+        // console2.log("1. USDC address: ", usdcAddress);
+        // prices = IVeloPair(veloUsdcErnPool).sample(usdcAddress, 1e6, 1, 2);
+        // console2.log("1. Price Velo: ", prices[0]);
+        uint256[] memory prices = new uint256[](6);
+        prices[0] = wrappedProxy.getErnAmountForUsdcVelo(baseAmount, period);
+        prices[1] = wrappedProxy.getErnAmountForUsdcUniV3(baseAmount, period);
+        prices[2] = 1059945924123 * baseAmount;
+        prices[3] = 959945924123 * baseAmount;
+        prices[4] = 1009945924123 * baseAmount;
+        prices[5] = 0 * baseAmount;
+        console2.log("Price Velo: ", prices[0]);
+        console2.log("Price UniV3: ", prices[1]);
+        vm.expectRevert(bytes4(keccak256("StabilityPool__CouldntDetermineMeanPrice()")));
+        uint256 finalPrice = wrappedProxy.getErnAmountForUsdcAll(prices, baseAmount, period, tolerance);
     }
 
     function testSeparaeteOracles() public {

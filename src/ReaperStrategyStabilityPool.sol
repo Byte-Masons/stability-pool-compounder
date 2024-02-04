@@ -39,7 +39,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     uint256 public constant ETHOS_DECIMALS = 18; // Decimals used by ETHOS
     uint256 public ernMinAmountOutBPS; // The max allowed slippage when trading in to ERN
     uint256 public compoundingFeeMarginBPS; // How much collateral value is lowered to account for the costs of swapping
-    uint32 public uniV3TWAPPeriod; // How many seconds the uniV3 TWAP will look at
+    uint32 public twapPeriod; // How many seconds the uniV3 TWAP will look at
     ExchangeType public usdcToErnExchange; // Controls which exchange is used to swap USDC to ERN
     bool public shouldOverrideHarvestBlock; // If reverts on TWAP out of normal range should be ignored
     uint256 acceptableTWAPUpperBound; // The normal upper price for the TWAP, reverts harvest if above
@@ -69,6 +69,9 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     error InvalidUsdcToErnTWAP(uint256 twapEnum);
     error TWAPOutsideAllowedRange(uint256 usdcPrice);
     error InvalidSwapStep();
+    error StabilityPool__CouldntDetermineMeanPrice();
+    error StabilityPool__WindowLongerThanOrZero();
+    error StabilityPool__TooShortPeriod();
 
     /**
      * @dev Initializes the strategy. Sets parameters, saves routes, and gives allowances.
@@ -119,7 +122,8 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         veloUsdcErnPool = IVeloPair(_pools.veloUsdcErnPool);
         veloWethErnPool = IVeloPair(_pools.veloWethErnPool);
         compoundingFeeMarginBPS = 9950;
-        updateUniV3TWAPPeriod(7200);
+        twapPeriod = 7200; // Question: Couldn't understand how it will work with function and twapPeriod as a 0 at the init,
+        // Can it be initialization of global variable instead of update function ?
         updateAcceptableTWAPBounds(980_000, 1_100_000);
     }
 
@@ -186,7 +190,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         address[] memory pools = new address[](1);
         pools[0] = address(uniV3UsdcErnPool);
         uint256 usdcAmount =
-            uniV3TWAP.quoteSpecificPoolsWithTimePeriod(ernAmount, want, address(usdc), pools, uniV3TWAPPeriod);
+            uniV3TWAP.quoteSpecificPoolsWithTimePeriod(ernAmount, want, address(usdc), pools, twapPeriod);
 
         if (usdcAmount < acceptableTWAPLowerBound || usdcAmount > acceptableTWAPUpperBound) {
             revert TWAPOutsideAllowedRange(usdcAmount);
@@ -330,7 +334,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
      */
     function _getErnAmountForUsdc(uint256 _usdcAmount) internal view returns (uint256 expectedErnAmount) {
         if (_usdcAmount != 0) {
-            expectedErnAmount = getErnAmountForUsdcAll(uint128(_usdcAmount), uniV3TWAPPeriod);
+            expectedErnAmount = getErnAmountForUsdcAll(uint128(_usdcAmount), twapPeriod);
         }
     }
 
@@ -351,10 +355,14 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
      * using the Velo TWAP.
      */
     function getErnAmountForUsdcVelo(uint128 _baseAmount, uint32 _period) public view returns (uint256) {
-        require(_period >= 2 days, "Too short period");
+        if (_period < 2 days) {
+            revert StabilityPool__TooShortPeriod();
+        }
         address[] memory pools = new address[](1);
         uint256 window = _period / 1 days;
-        require(window <= veloUsdcErnPool.observationLength(), "Window longer than observation length");
+        if (window >= veloUsdcErnPool.observationLength() || window == 0) {
+            revert StabilityPool__WindowLongerThanOrZero();
+        }
 
         uint256 wantDecimals = IERC20MetadataUpgradeable(want).decimals();
         uint256[] memory quoteAmount = veloUsdcErnPool.sample(address(usdc), (10 ** usdc.decimals()), 1, window);
@@ -371,10 +379,14 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
      * using the Velo TWAP.
      */
     function getErnAmountForWethVelo(uint128 _baseAmount, uint32 _period) public view returns (uint256) {
-        require(_period >= 2 days, "Too short period");
+        if (_period < 2 days) {
+            revert StabilityPool__TooShortPeriod();
+        }
         address[] memory pools = new address[](1);
         uint256 window = _period / 1 days;
-        require(window <= veloWethErnPool.observationLength(), "Window longer than observation length");
+        if (window >= veloUsdcErnPool.observationLength() || window == 0) {
+            revert StabilityPool__WindowLongerThanOrZero();
+        }
 
         uint256 wantDecimals = IERC20MetadataUpgradeable(want).decimals();
         uint256[] memory quoteAmount = veloWethErnPool.sample(address(weth), 1e18, 1, window);
@@ -403,8 +415,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         view
         returns (bool[] memory indexes, uint32 validAmount)
     {
-        uint32 PERCENTAGE = 100_000; // make global constant
-
         indexes = new bool[](prices.length);
         uint256 referencePrice = prices[idx];
         indexes[idx] = true;
@@ -413,9 +423,10 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         for (uint32 cnt = (idx + 1) % uint32(prices.length); cnt != idx; cnt = (cnt + 1) % uint32(prices.length)) {
             console2.log("Reference price: ", referencePrice);
             console2.log("vs prices[cnt]: ", prices[cnt]);
+            // Question: Can be acceptableTWAPLowerBound and acceptableTWAPUpperBound be applied here ?
             if (
-                referencePrice + (referencePrice * tolerance / PERCENTAGE) >= prices[cnt]
-                    && referencePrice - (referencePrice * tolerance / PERCENTAGE) <= prices[cnt]
+                referencePrice + (referencePrice * tolerance / PERCENT_DIVISOR) >= prices[cnt]
+                    && referencePrice - (referencePrice * tolerance / PERCENT_DIVISOR) <= prices[cnt]
             ) {
                 validAmount++;
                 indexes[cnt] = true;
@@ -427,13 +438,13 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
      * @dev Returns the {ernAmount} for the specified {_baseAmount} of USDC over a given {_period} (in seconds)
      * using the all possible oracles.
      */
-    function getErnAmountForUsdcAll(uint128 _baseAmount, uint32 _period) public returns (uint256) {
-        uint256[] memory _prices = new uint256[](3);
+    function getErnAmountForUsdcAll(uint128 _baseAmount, uint32 _period) public view returns (uint256) {
+        uint256[] memory _prices = new uint256[](2);
         _prices[0] = getErnAmountForUsdcVelo(_baseAmount, _period);
         _prices[1] = getErnAmountForUsdcUniV3(_baseAmount, _period);
-        _prices[2] = getErnAmountForUsdcVeloWeth(_baseAmount, _period); // This function is not view
+        //_prices[2] = getErnAmountForUsdcVeloWeth(_baseAmount, _period); // This function is not view
 
-        return getErnAmountForUsdcAll(_prices, _baseAmount, _period, 1000);
+        return getErnAmountForUsdcAll(_prices, _baseAmount, _period, 200);
     }
 
     /**
@@ -464,7 +475,9 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
                 break;
             }
         }
-        require(meanTwap != 0, "Couldn't determine mean price");
+        if (meanTwap == 0) {
+            revert StabilityPool__CouldntDetermineMeanPrice();
+        }
         return meanTwap;
     }
 
@@ -487,7 +500,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         internal
         returns (uint256)
     {
-        uint256 price = priceFeed.fetchPrice(_collateral);
+        uint256 price = priceFeed.fetchPrice(_collateral); // Question: This make function not viewable an must be propagated upper
         return _getUSDEquivalentOfCollateralCommon(_collateral, _amount, price, ETHOS_DECIMALS);
     }
 
@@ -614,14 +627,14 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
      * roles a check is performed to see if changing duration would effect the price
      * past some threshold, if the strategy holds collateral value (priced by TWAP).
      */
-    function updateUniV3TWAPPeriod(uint32 _uniV3TWAPPeriod) public {
+    function updateTwapPeriod(uint32 _twapPeriod) public {
         _atLeastRole(ADMIN);
-        require(_uniV3TWAPPeriod >= 7200, "TWAP period is too short");
+        require(_twapPeriod >= 7200, "TWAP period is too short");
 
-        uint256 newErnAmount = getErnAmountForUsdcAll(uint128(1_000_000), _uniV3TWAPPeriod);
-        uint256 oldErnAmount = getErnAmountForUsdcAll(uint128(1_000_000), uniV3TWAPPeriod);
+        uint256 newErnAmount = getErnAmountForUsdcAll(uint128(1_000_000), _twapPeriod);
+        uint256 oldErnAmount = getErnAmountForUsdcAll(uint128(1_000_000), twapPeriod);
 
-        uniV3TWAPPeriod = _uniV3TWAPPeriod;
+        twapPeriod = _twapPeriod;
 
         if (_hasRole(DEFAULT_ADMIN_ROLE, msg.sender)) return;
 
