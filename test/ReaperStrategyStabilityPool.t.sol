@@ -5,7 +5,7 @@ pragma solidity ^0.8.0;
 import "forge-std/Test.sol";
 import "forge-std/console.sol";
 import "src/ReaperStrategyStabilityPool.sol";
-import "vault-v2/ReaperSwapper.sol";
+import {ReaperSwapper, ISwapRouter, TransferHelper} from "vault-v2/ReaperSwapper.sol";
 import "vault-v2/ReaperVaultV2.sol";
 import "vault-v2/ReaperBaseStrategyv4.sol";
 import "vault-v2/interfaces/ISwapper.sol";
@@ -38,7 +38,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
     address public balVault = 0xBA12222222228d8Ba445958a75a0704d566BF2C8;
     address public uniV3Router = 0xE592427A0AEce92De3Edee1F18E0157C05861564;
     address public uniV2Router = 0xbeeF000000000000000000000000000000000000; // Any non-0 address when UniV2 router does not exist
-    address public veloUsdcErnPool = 0x5e4A183Fa83C52B1c55b11f2682f6a8421206633;
+    address public veloUsdcErnPool = 0x605cCE502dEe6BD201b493782e351e645D44abBB;
     address public uniV3UsdcErnPool = 0x4CE4a1a593Ea9f2e6B2c05016a00a2D300C9fFd8;
     address public chainlinkUsdcOracle = 0x16a9FA2FDa030272Ce99B29CF780dFA30361E0f3;
     address public uniV3TWAP = 0xB210CE856631EeEB767eFa666EC7C1C57738d438;
@@ -113,7 +113,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
     function setUp() public {
         // Forking
         string memory rpc = vm.envString("RPC");
-        optimismFork = vm.createSelectFork(rpc, 107994026);
+        optimismFork = vm.createSelectFork(rpc, 115675719);
         assertEq(vm.activeFork(), optimismFork);
 
         // // Deploying stuff
@@ -123,8 +123,15 @@ contract ReaperStrategyStabilityPoolTest is Test {
         wrappedSwapperProxy.initialize(strategists, guardianAddress, superAdminAddress);
         swapper = ISwapper(address(swapperProxy));
 
-        vault =
-        new ReaperVaultV2(wantAddress, vaultName, vaultSymbol, vaultTvlCap, treasuryAddress, strategists, multisigRoles);
+        vault = new ReaperVaultV2(
+            wantAddress,
+            vaultName,
+            vaultSymbol,
+            vaultTvlCap,
+            treasuryAddress,
+            strategists,
+            multisigRoles
+        );
         implementation = new ReaperStrategyStabilityPool();
         proxy = new ERC1967Proxy(address(implementation), "");
         wrappedProxy = ReaperStrategyStabilityPool(address(proxy));
@@ -138,6 +145,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         ReaperStrategyStabilityPool.Pools memory pools;
         pools.stabilityPool = stabilityPoolAddress;
         pools.uniV3UsdcErnPool = uniV3UsdcErnPool;
+        pools.veloUsdcErnPool = veloUsdcErnPool;
 
         address[] memory usdcErnPath = new address[](2);
         usdcErnPath[0] = usdcAddress;
@@ -791,7 +799,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         assertEq(valueInCollateralAfter, priceQuote);
 
         uint256 compoundingFeeMarginBPS = wrappedProxy.compoundingFeeMarginBPS();
-        uint256 expectedPoolBalance = valueInCollateralAfter * compoundingFeeMarginBPS / BPS_UNIT;
+        uint256 expectedPoolBalance = (valueInCollateralAfter * compoundingFeeMarginBPS) / BPS_UNIT;
         console.log("expectedPoolBalance: ", expectedPoolBalance);
         assertEq(poolBalanceAfter, expectedPoolBalance);
     }
@@ -853,8 +861,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
         // All usd values must have 18 decimals for comparison.
         // WETH and OP already have 18 decimals, but we need to scale WBTC.
         uint256 wbtcUsdValue = wbtcAmount * uint256(wbtcPrice) * (10 ** 2);
-        uint256 wethUsdValue = wethAmount * uint256(wethPrice) / (10 ** 8);
-        uint256 opUsdValue = opAmount * uint256(opPrice) / (10 ** 8);
+        uint256 wethUsdValue = (wethAmount * uint256(wethPrice)) / (10 ** 8);
+        uint256 opUsdValue = (opAmount * uint256(opPrice)) / (10 ** 8);
         uint256 expectedUsdValueInCollateral = wbtcUsdValue + wethUsdValue + opUsdValue;
         console.log("wbtcUsdValue: ", wbtcUsdValue);
         console.log("wethUsdValue: ", wethUsdValue);
@@ -887,7 +895,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         assertApproxEqRel(ernAmount, wantValueInCollateral, 1e8);
 
         uint256 compoundingFeeMarginBPS = wrappedProxy.compoundingFeeMarginBPS();
-        uint256 expectedPoolIncrease = ernAmount * compoundingFeeMarginBPS / BPS_UNIT;
+        uint256 expectedPoolIncrease = (ernAmount * compoundingFeeMarginBPS) / BPS_UNIT;
         // console.log("poolBalanceIncrease: ", poolBalanceAfter - poolBalanceBefore);
         // console.log("expectedPoolIncrease: ", expectedPoolIncrease);
         // assertEq(poolBalanceAfter - poolBalanceBefore, expectedPoolIncrease);
@@ -925,7 +933,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         uint256 valueInCollateral = wrappedProxy.getERNValueOfCollateralGain();
         console.log("valueInCollateral: ", valueInCollateral);
 
-        uint256 newUsdcPrice = usdcPrice * 9500 / BPS_UNIT;
+        uint256 newUsdcPrice = (usdcPrice * 9500) / BPS_UNIT;
         vm.startPrank(usdcOracleOwner);
         mockChainlink.setPrice(int256(newUsdcPrice));
         mockChainlink.setPrevPrice(int256(newUsdcPrice));
@@ -933,7 +941,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         // uint256 usdcPrice = uint256(usdcAggregator.latestAnswer());
         // console.log("usdcPrice: ", usdcPrice);
 
-        uint256 expectedValueInCollateral = valueInCollateral * 10_526 / BPS_UNIT;
+        uint256 expectedValueInCollateral = (valueInCollateral * 10_526) / BPS_UNIT;
         valueInCollateral = wrappedProxy.getERNValueOfCollateralGain();
         console.log("expectedValueInCollateral: ", expectedValueInCollateral);
         console.log("valueInCollateral: ", valueInCollateral);
@@ -975,7 +983,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
         uint256 usdcInPool = IERC20Upgradeable(usdcAddress).balanceOf(uniV3UsdcErnPool);
         console.log("usdcInPool: ", usdcInPool);
-        uint256 usdcToDump = usdcInPool * 9999 / 10_000;
+        uint256 usdcToDump = (usdcInPool * 9999) / 10_000;
 
         deal({token: usdcAddress, to: address(this), give: usdcToDump * 100});
 
@@ -1058,7 +1066,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
         uint256 usdcInPool = IERC20Upgradeable(usdcAddress).balanceOf(uniV3UsdcErnPool);
         console.log("usdcInPool: ", usdcInPool);
-        uint256 usdcToDump = usdcInPool * 9999 / 10_000;
+        uint256 usdcToDump = (usdcInPool * 9999) / 10_000;
         uint256 ernToDump = 10 * 1 ether;
         deal({token: usdcAddress, to: address(this), give: usdcToDump * 100});
         deal({token: wantAddress, to: address(this), give: ernToDump * 100});
@@ -1132,7 +1140,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
         uint256 usdcInPool = IERC20Upgradeable(usdcAddress).balanceOf(uniV3UsdcErnPool);
         console.log("usdcInPool: ", usdcInPool);
-        uint256 usdcToDump = usdcInPool * 9999 / 10_000;
+        uint256 usdcToDump = (usdcInPool * 9999) / 10_000;
         deal({token: usdcAddress, to: address(this), give: usdcToDump * 100});
         uint256 nrOfSwaps = 100;
 

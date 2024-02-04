@@ -1,3 +1,6 @@
 [submodule "lib/vault-v2"]
 	path = lib/vault-v2
 	url = git@github.com:Byte-Masons/vault-v2.git
+[submodule "lib/tarot-price-oracle"]
+	path = lib/tarot-price-oracle
+	url = https://github.com/xrave110/tarot-price-oracle

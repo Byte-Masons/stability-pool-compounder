@@ -2,6 +2,7 @@
 
 pragma solidity ^0.8.0;
 
+import "forge-std/Test.sol";
 import "vault-v2/interfaces/ISwapper.sol";
 import {ReaperBaseStrategyv4} from "vault-v2/ReaperBaseStrategyv4.sol";
 import {IStabilityPool} from "./interfaces/IStabilityPool.sol";
@@ -14,6 +15,7 @@ import {IUniswapV3Pool} from "./interfaces/IUniswapV3Pool.sol";
 import {IERC20MetadataUpgradeable} from "oz-upgradeable/token/ERC20/extensions/IERC20MetadataUpgradeable.sol";
 import {SafeERC20Upgradeable} from "oz-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 import {MathUpgradeable} from "oz-upgradeable/utils/math/MathUpgradeable.sol";
+import {IVeloPair} from "./interfaces/IVeloPair.sol";
 
 /**
  * @dev Strategy to compound rewards and liquidation collateral gains in the Ethos stability pool
@@ -27,8 +29,11 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     IStabilityPool public stabilityPool;
     IPriceFeed public priceFeed;
     IERC20MetadataUpgradeable public usdc;
+    IERC20MetadataUpgradeable public weth;
     ExchangeSettings public exchangeSettings; // Holds addresses to use Velo, UniV3 and Bal through Swapper
     IUniswapV3Pool public uniV3UsdcErnPool;
+    IVeloPair public veloUsdcErnPool;
+    IVeloPair public veloWethErnPool;
     IStaticOracle public uniV3TWAP;
 
     uint256 public constant ETHOS_DECIMALS = 18; // Decimals used by ETHOS
@@ -50,11 +55,14 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     struct Pools {
         address stabilityPool;
         address uniV3UsdcErnPool;
+        address veloUsdcErnPool;
+        address veloWethErnPool;
     }
 
     struct Tokens {
         address want;
         address usdc;
+        address weth;
     }
 
     error InvalidUsdcToErnExchange(uint256 exchangeEnum);
@@ -85,6 +93,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         require(_tokens.want != address(0), "want is 0 address");
         require(_priceFeed != address(0), "priceFeed is 0 address");
         require(_tokens.usdc != address(0), "usdc is 0 address");
+        require(_tokens.weth != address(0), "weth is 0 address");
         require(_uniV3TWAP != address(0), "uniV3TWAP is 0 address");
         require(_exchangeSettings.veloRouter != address(0), "veloRouter is 0 address");
         require(_exchangeSettings.balVault != address(0), "balVault is 0 address");
@@ -92,11 +101,14 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         require(_exchangeSettings.uniV2Router != address(0), "uniV2Router is 0 address");
         require(_pools.stabilityPool != address(0), "stabilityPool is 0 address");
         require(_pools.uniV3UsdcErnPool != address(0), "uniV3UsdcErnPool is 0 address");
+        require(_pools.veloUsdcErnPool != address(0), "veloUsdcErnPool is 0 address");
+        require(_pools.veloWethErnPool != address(0), "veloWethErnPool is 0 address");
 
         __ReaperBaseStrategy_init(_vault, _swapper, _tokens.want, _strategists, _multisigRoles, _keepers);
         stabilityPool = IStabilityPool(_pools.stabilityPool);
         priceFeed = IPriceFeed(_priceFeed);
         usdc = IERC20MetadataUpgradeable(_tokens.usdc);
+        weth = IERC20MetadataUpgradeable(_tokens.weth);
         exchangeSettings = _exchangeSettings;
 
         updateErnMinAmountOutBPS(9800);
@@ -104,6 +116,8 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
 
         uniV3TWAP = IStaticOracle(_uniV3TWAP);
         uniV3UsdcErnPool = IUniswapV3Pool(_pools.uniV3UsdcErnPool);
+        veloUsdcErnPool = IVeloPair(_pools.veloUsdcErnPool);
+        veloWethErnPool = IVeloPair(_pools.veloWethErnPool);
         compoundingFeeMarginBPS = 9950;
         updateUniV3TWAPPeriod(7200);
         updateAcceptableTWAPBounds(980_000, 1_100_000);
@@ -316,7 +330,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
      */
     function _getErnAmountForUsdc(uint256 _usdcAmount) internal view returns (uint256 expectedErnAmount) {
         if (_usdcAmount != 0) {
-            expectedErnAmount = getErnAmountForUsdcUniV3(uint128(_usdcAmount), uniV3TWAPPeriod);
+            expectedErnAmount = getErnAmountForUsdcAll(uint128(_usdcAmount), uniV3TWAPPeriod);
         }
     }
 
@@ -330,6 +344,128 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         uint256 quoteAmount =
             uniV3TWAP.quoteSpecificPoolsWithTimePeriod(_baseAmount, address(usdc), want, pools, _period);
         return quoteAmount;
+    }
+
+    /**
+     * @dev Returns the {ernAmount} for the specified {_baseAmount} of USDC over a given {_period} (in seconds)
+     * using the Velo TWAP.
+     */
+    function getErnAmountForUsdcVelo(uint128 _baseAmount, uint32 _period) public view returns (uint256) {
+        require(_period >= 2 days, "Too short period");
+        address[] memory pools = new address[](1);
+        uint256 window = _period / 1 days;
+        require(window <= veloUsdcErnPool.observationLength(), "Window longer than observation length");
+
+        uint256 wantDecimals = IERC20MetadataUpgradeable(want).decimals();
+        uint256[] memory quoteAmount = veloUsdcErnPool.sample(address(usdc), (10 ** usdc.decimals()), 1, window);
+        return (_baseAmount * quoteAmount[0] * (10 ** (wantDecimals - usdc.decimals())) / 1 ether); // better math
+    }
+
+    function getUsdcAmountForWethUsingPriceFeeds() public returns (uint256) {
+        uint256 tmpPrice = _getUSDEquivalentOfCollateralUsingPriceFeed(address(weth), 1 ether);
+        return _getUsdcEquivalentOfUSD(tmpPrice);
+    }
+
+    /**
+     * @dev Returns the {ernAmount} for the specified {_baseAmount} of USDC over a given {_period} (in seconds)
+     * using the Velo TWAP.
+     */
+    function getErnAmountForWethVelo(uint128 _baseAmount, uint32 _period) public view returns (uint256) {
+        require(_period >= 2 days, "Too short period");
+        address[] memory pools = new address[](1);
+        uint256 window = _period / 1 days;
+        require(window <= veloWethErnPool.observationLength(), "Window longer than observation length");
+
+        uint256 wantDecimals = IERC20MetadataUpgradeable(want).decimals();
+        uint256[] memory quoteAmount = veloWethErnPool.sample(address(weth), 1e18, 1, window);
+        return (_baseAmount * quoteAmount[0] / 1 ether); // better math
+    }
+
+    /**
+     * @dev Returns the {ernAmount} for the specified {_baseAmount} of USDC over a given {_period} (in seconds)
+     * using the Velo TWAP.
+     *
+     * Math:
+     * 1e18 wei - x ern
+     * 1e18 wei - y usdc
+     * ern = 1e18 wei / x => ern = y usdc / x
+     */
+    function getErnAmountForUsdcVeloWeth(uint128 _baseAmount, uint32 _period) public returns (uint256) {
+        uint256 usdcAmountForWethPriceFeeds = (getUsdcAmountForWethUsingPriceFeeds() * _baseAmount);
+        // console2.log("Feed: ", usdcAmountForWethPriceFeeds);
+        uint256 veloAmountForWethVelo = getErnAmountForWethVelo(_baseAmount, _period);
+        // console2.log("Velo: ", veloAmountForWethVelo);
+        return ((usdcAmountForWethPriceFeeds * 1 ether * 10 ** usdc.decimals()) / veloAmountForWethVelo);
+    }
+
+    function getInfoAboutTwapOracles(uint256[] memory prices, uint32 idx, uint32 tolerance)
+        private
+        view
+        returns (bool[] memory indexes, uint32 validAmount)
+    {
+        uint32 PERCENTAGE = 100_000; // make global constant
+
+        indexes = new bool[](prices.length);
+        uint256 referencePrice = prices[idx];
+        indexes[idx] = true;
+        validAmount = 1;
+
+        for (uint32 cnt = (idx + 1) % uint32(prices.length); cnt != idx; cnt = (cnt + 1) % uint32(prices.length)) {
+            console2.log("Reference price: ", referencePrice);
+            console2.log("vs prices[cnt]: ", prices[cnt]);
+            if (
+                referencePrice + (referencePrice * tolerance / PERCENTAGE) >= prices[cnt]
+                    && referencePrice - (referencePrice * tolerance / PERCENTAGE) <= prices[cnt]
+            ) {
+                validAmount++;
+                indexes[cnt] = true;
+            }
+        }
+    }
+
+    /**
+     * @dev Returns the {ernAmount} for the specified {_baseAmount} of USDC over a given {_period} (in seconds)
+     * using the all possible oracles.
+     */
+    function getErnAmountForUsdcAll(uint128 _baseAmount, uint32 _period) public returns (uint256) {
+        uint256[] memory _prices = new uint256[](3);
+        _prices[0] = getErnAmountForUsdcVelo(_baseAmount, _period);
+        _prices[1] = getErnAmountForUsdcUniV3(_baseAmount, _period);
+        _prices[2] = getErnAmountForUsdcVeloWeth(_baseAmount, _period); // This function is not view
+
+        return getErnAmountForUsdcAll(_prices, _baseAmount, _period, 1000);
+    }
+
+    /**
+     * @dev Returns the {ernAmount} for the specified {_baseAmount} of USDC over a given {_period} (in seconds)
+     * using the all possible oracles.
+     */
+    function getErnAmountForUsdcAll(uint256[] memory _prices, uint128 _baseAmount, uint32 _period, uint32 _tolerance)
+        public
+        view
+        returns (uint256)
+    {
+        uint256 meanTwap = 0;
+
+        for (uint32 idx = 0; idx < _prices.length; idx++) {
+            (bool[] memory indexes, uint32 validAmount) = getInfoAboutTwapOracles(_prices, idx, _tolerance);
+            console2.log("Idx: ", idx);
+            console2.log("Valid amount: ", validAmount);
+            // Amount of valid prices must be greater than 50%
+            if (validAmount > (_prices.length / 2)) {
+                uint256 sumOfPrices = 0;
+                for (uint32 cnt = 0; cnt < indexes.length; cnt++) {
+                    if (indexes[cnt] != false) {
+                        sumOfPrices += _prices[cnt];
+                        console2.log("Sum of prices: ", sumOfPrices);
+                    }
+                }
+                meanTwap = sumOfPrices / validAmount;
+                break;
+            }
+        }
+        require(meanTwap != 0, "Couldn't determine mean price");
+        return meanTwap;
     }
 
     /**
@@ -482,8 +618,8 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         _atLeastRole(ADMIN);
         require(_uniV3TWAPPeriod >= 7200, "TWAP period is too short");
 
-        uint256 newErnAmount = getErnAmountForUsdcUniV3(uint128(1_000_000), _uniV3TWAPPeriod);
-        uint256 oldErnAmount = getErnAmountForUsdcUniV3(uint128(1_000_000), uniV3TWAPPeriod);
+        uint256 newErnAmount = getErnAmountForUsdcAll(uint128(1_000_000), _uniV3TWAPPeriod);
+        uint256 oldErnAmount = getErnAmountForUsdcAll(uint128(1_000_000), uniV3TWAPPeriod);
 
         uniV3TWAPPeriod = _uniV3TWAPPeriod;
 
