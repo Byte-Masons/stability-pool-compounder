@@ -39,6 +39,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
     address public uniV3Router = 0xE592427A0AEce92De3Edee1F18E0157C05861564;
     address public uniV2Router = 0xbeeF000000000000000000000000000000000000; // Any non-0 address when UniV2 router does not exist
     address public veloUsdcErnPool = 0x605cCE502dEe6BD201b493782e351e645D44abBB;
+    address public veloWethErnPool = 0xFFf37730744930Cb61Be34c0014068F4f1eC28cF;
     address public uniV3UsdcErnPool = 0x4CE4a1a593Ea9f2e6B2c05016a00a2D300C9fFd8;
     address public chainlinkUsdcOracle = 0x16a9FA2FDa030272Ce99B29CF780dFA30361E0f3;
     address public uniV3TWAP = 0xB210CE856631EeEB767eFa666EC7C1C57738d438;
@@ -113,7 +114,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
     function setUp() public {
         // Forking
         string memory rpc = vm.envString("RPC");
-        optimismFork = vm.createSelectFork(rpc, 115675719);
+        optimismFork = vm.createSelectFork(rpc, 115641661);
         assertEq(vm.activeFork(), optimismFork);
 
         // // Deploying stuff
@@ -146,6 +147,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         pools.stabilityPool = stabilityPoolAddress;
         pools.uniV3UsdcErnPool = uniV3UsdcErnPool;
         pools.veloUsdcErnPool = veloUsdcErnPool;
+        pools.veloWethErnPool = veloWethErnPool;
 
         address[] memory usdcErnPath = new address[](2);
         usdcErnPath[0] = usdcAddress;
@@ -154,6 +156,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         ReaperStrategyStabilityPool.Tokens memory tokens;
         tokens.want = wantAddress;
         tokens.usdc = usdcAddress;
+        tokens.weth = wethAddress;
 
         uint256 allowedTWAPDiscrepancy = 500;
 
