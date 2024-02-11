@@ -76,24 +76,12 @@ contract TarotOracleTest is Test {
     ReaperSwapper reaperSwapper;
     ReaperStrategyStabilityPool implementation;
     ReaperStrategyStabilityPool wrappedProxy;
-    // TarotPriceOracleVolatile tarot;
 
     function setUp() public {
-        // address[] memory strategists = new address[](1);
-        // strategists[0] = makeAddr("strategist1");
-        //0x95885Af5492195F0754bE71AD1545Fe81364E531
-        // vm.etch(0x95885Af5492195F0754bE71AD1545Fe81364E531, address(pool).code);
-        // vm.etch(veloUsdcErnPool, address(pool).code);
         // Forking
         string memory rpc = vm.envString("RPC");
         optimismFork = vm.createSelectFork(rpc, FORK_BLOCK);
         assertEq(vm.activeFork(), optimismFork);
-
-        // Deploying
-        // tarot = new TarotPriceOracleVolatile();
-        // tarot.initialize(veloUsdcErnPool);
-        // veloWethErnPool = IVeloRouter(veloRouter).poolFor(wethAddress, ernAddress, false, veloFactoryV2Default);
-        // tarot.initialize(veloWethErnPool);
 
         /* Reaper deployment and configuration */
         ERC1967Proxy tmpProxy;
@@ -152,41 +140,26 @@ contract TarotOracleTest is Test {
         );
     }
 
-    function testMultipleOracles_Positive(uint128 baseAmount, uint32 period) public {
+    function testMultipleOracles_PositiveOnePrice(uint128 baseAmount, uint32 period) public {
         baseAmount = uint128(bound(baseAmount, 1, 10_000 ether));
         period = uint32(bound(period, 2 days, 9 days));
         uint32 tolerance = 500;
-        // console2.log("1. Pool address: ", veloUsdcErnPool);
-        // console2.log("1. USDC address: ", usdcAddress);
-        // prices = IVeloPair(veloUsdcErnPool).sample(usdcAddress, 1e6, 1, 2);
-        // console2.log("1. Price Velo: ", prices[0]);
-        uint256[] memory prices = new uint256[](6);
-        prices[0] = wrappedProxy.getErnAmountForUsdcVelo(baseAmount, period);
-        prices[1] = wrappedProxy.getErnAmountForUsdcUniV3(baseAmount, period);
-        prices[2] = 1059945924123 * baseAmount;
-        prices[3] = 959945924123 * baseAmount;
-        prices[4] = 1009945924123 * baseAmount;
-        prices[5] = 0 * baseAmount;
+        uint256[] memory prices = new uint256[](1);
+        prices[0] = wrappedProxy.getErnAmountForUsdcVeloPoints(baseAmount, period);
         console2.log("Price Velo: ", prices[0]);
-        console2.log("Price UniV3: ", prices[1]);
-        uint256 finalPrice = wrappedProxy.getErnAmountForUsdcAll(prices, baseAmount, period, tolerance);
-        // console2.log("1.Price All: ", wrappedProxy.getErnAmountForUsdcAll(baseAmount, period));
+        uint256 finalPrice = wrappedProxy.getErnAmountForUsdcAll(prices, tolerance);
         console2.log("2.Price All: ", finalPrice);
         uint256 highBoundary = (baseAmount * 1e12) + ((baseAmount * 1e12) * tolerance) / 10_000;
         uint256 lowBoundary = (baseAmount * 1e12) - ((baseAmount * 1e12) * tolerance) / 10_000;
         assert(finalPrice < highBoundary && finalPrice > lowBoundary);
     }
 
-    function testMultipleOracles_Negative(uint128 baseAmount, uint32 period) public {
+    function testMultipleOracles_Positive(uint128 baseAmount, uint32 period) public {
         baseAmount = uint128(bound(baseAmount, 1, 10_000 ether));
         period = uint32(bound(period, 2 days, 9 days));
-        uint32 tolerance = 300;
-        // console2.log("1. Pool address: ", veloUsdcErnPool);
-        // console2.log("1. USDC address: ", usdcAddress);
-        // prices = IVeloPair(veloUsdcErnPool).sample(usdcAddress, 1e6, 1, 2);
-        // console2.log("1. Price Velo: ", prices[0]);
+        uint32 tolerance = 500;
         uint256[] memory prices = new uint256[](6);
-        prices[0] = wrappedProxy.getErnAmountForUsdcVelo(baseAmount, period);
+        prices[0] = wrappedProxy.getErnAmountForUsdcVeloWindow(baseAmount, period);
         prices[1] = wrappedProxy.getErnAmountForUsdcUniV3(baseAmount, period);
         prices[2] = 1059945924123 * baseAmount;
         prices[3] = 959945924123 * baseAmount;
@@ -194,79 +167,123 @@ contract TarotOracleTest is Test {
         prices[5] = 0 * baseAmount;
         console2.log("Price Velo: ", prices[0]);
         console2.log("Price UniV3: ", prices[1]);
-        vm.expectRevert(bytes4(keccak256("StabilityPool__CouldntDetermineMeanPrice()")));
-        uint256 finalPrice = wrappedProxy.getErnAmountForUsdcAll(prices, baseAmount, period, tolerance);
+        uint256 finalPrice_1 = wrappedProxy.getErnAmountForUsdcAll(prices, tolerance);
+        console2.log("2.Price_1 All: ", finalPrice_1);
+
+        uint256 finalPrice_2 = wrappedProxy.getErnAmountForUsdcAll(baseAmount, tolerance);
+        console2.log("2.Price_2 All: ", finalPrice_2);
+        uint256 highBoundary = (baseAmount * 1e12) + ((baseAmount * 1e12) * tolerance) / 10_000;
+        uint256 lowBoundary = (baseAmount * 1e12) - ((baseAmount * 1e12) * tolerance) / 10_000;
+        assert(finalPrice_1 < highBoundary && finalPrice_1 > lowBoundary);
+        assert(finalPrice_2 < highBoundary && finalPrice_2 > lowBoundary);
+    }
+
+    function testMultipleOracles_Negative(uint128 baseAmount, uint32 period) public {
+        baseAmount = uint128(bound(baseAmount, 1, 10_000 ether));
+        period = uint32(bound(period, 2 days, 9 days));
+        uint32 tolerance = 200; // tolerance set to narrow values
+        uint256[] memory prices = new uint256[](6);
+        prices[0] = wrappedProxy.getErnAmountForUsdcVeloWindow(baseAmount, period);
+        prices[1] = wrappedProxy.getErnAmountForUsdcUniV3(baseAmount, period);
+        prices[2] = 1059945924123 * baseAmount;
+        prices[3] = 959945924123 * baseAmount;
+        prices[4] = 1009945924123 * baseAmount;
+        prices[5] = 0 * baseAmount;
+        console2.log("Price Velo: ", prices[0]);
+        console2.log("Price UniV3: ", prices[1]);
+        vm.expectRevert(bytes4(keccak256("CouldntDetermineMeanPrice()")));
+        wrappedProxy.getErnAmountForUsdcAll(prices, tolerance);
     }
 
     function testSeparaeteOracles() public {
         console2.log("Velo 1 WETH = %d ERN", wrappedProxy.getErnAmountForWethVelo(1 ether, 2 days));
         console2.log("Chainlink 1 WETH = %d USDC", wrappedProxy.getUsdcAmountForWethUsingPriceFeeds());
-        console2.log(wrappedProxy.getErnAmountForUsdcVelo(1 ether, 2 days));
+        console2.log(wrappedProxy.getErnAmountForUsdcVeloWindow(1 ether, 2 days));
+        console2.log(wrappedProxy.getErnAmountForUsdcVeloPoints(1 ether, 2 days));
         console2.log(wrappedProxy.getErnAmountForUsdcUniV3(1 ether, 2 days));
         console2.log(wrappedProxy.getErnAmountForUsdcVeloWeth(1 ether, 2 days));
     }
 
-    function testTarotOracle_Weth() public {
-        uint256 amount = 20000e18;
-        console2.log("Length USDC/ERN: ", IVeloPair(veloUsdcErnPool).observationLength());
-        console2.log("Length WETH/ERN: ", IVeloPair(veloWethErnPool).observationLength());
+    function testOraclesOnPriceManipulationsComparison_ErnWhale() public {
+        uint256 amount = IERC20(ernAddress).balanceOf(ernWhale);
         MinAmountOutData memory minAmountOutData = MinAmountOutData(MinAmountOutKind.Absolute, 0);
+
+        uint256 result = wrappedProxy.getErnAmountForUsdcVeloPoints(1 ether, 2 days);
+        console2.log("1. Result before swap: ", result);
+        result = wrappedProxy.getErnAmountForUsdcVeloWindow(1 ether, 2 days);
+        console2.log("1. Result1 before swap: ", result);
+        vm.startPrank(ernWhale);
+        console2.log("1. Whale balance of ERN", IERC20(ernAddress).balanceOf(ernWhale));
+        console2.log("1. Whale balance of USDC", IERC20(usdcAddress).balanceOf(ernWhale) * 1e12);
+        IERC20Upgradeable(ernAddress).approve(address(reaperSwapper), amount);
+        reaperSwapper.swapVelo(ernAddress, usdcAddress, amount, minAmountOutData, address(veloRouter));
+        console2.log("2. Whale balance of ERN", IERC20(ernAddress).balanceOf(ernWhale));
+        console2.log("2. Whale balance of USDC", IERC20(usdcAddress).balanceOf(ernWhale) * 1e12);
         vm.warp(block.timestamp + 1 days);
-        uint256[] memory prices = IVeloPair(veloWethErnPool).sample(wethAddress, 1e18, 1, 10);
-        console2.log("1. Sample result: ", prices[0]);
-        prices = IVeloPair(veloWethErnPool).sample(wethAddress, 1e18, 1, 100);
-        console2.log("2. Sample result: ", prices[0]);
-        prices = IVeloPair(veloWethErnPool).sample(wethAddress, 1e18, 1, 1000);
-        console2.log("3. Sample result: ", prices[0]);
-        prices = IVeloPair(veloUsdcErnPool).sample(usdcAddress, 1e6, 1, 10);
-        console2.log("2. Sample result: ", prices[0]);
-        console2.log("Length USDC/ERN: ", IVeloPair(veloUsdcErnPool).observationLength());
-        console2.log("Length WETH/ERN: ", IVeloPair(veloWethErnPool).observationLength());
-        // prices = IVeloPair(veloUsdcErnPool).sample(usdcAddress, 1e6, 1, 1000);
-        console2.log("3. Sample result: ", prices[0]);
+        IVeloPair(veloUsdcErnPool).sync(); // imitates vm.warp(block.timestamp + 1 days);
+        result = wrappedProxy.getErnAmountForUsdcVeloPoints(1 ether, 2 days);
+        console2.log("2. Result (points) after 1 day from swap: ", result);
+        result = wrappedProxy.getErnAmountForUsdcVeloWindow(1 ether, 2 days);
+        console2.log("2. Result (window) after 1 day from swap: ", result);
+        vm.warp(block.timestamp + 1 weeks);
+        IVeloPair(veloUsdcErnPool).sync(); //Imitates vm.warp(block.timestamp + 1 weeks);
+        IVeloPair(veloUsdcErnPool).sync();
+        IVeloPair(veloUsdcErnPool).sync();
+        IVeloPair(veloUsdcErnPool).sync();
+        IVeloPair(veloUsdcErnPool).sync();
+        IVeloPair(veloUsdcErnPool).sync();
+        IVeloPair(veloUsdcErnPool).sync();
+        result = wrappedProxy.getErnAmountForUsdcVeloPoints(1 ether, 2 days);
+        console2.log("2. Result (points) after 1 week from swap: ", result);
+        result = wrappedProxy.getErnAmountForUsdcVeloWindow(1 ether, 2 days);
+        console2.log("2. Result (window) after 1 week from swap: ", result);
     }
 
-    // function testWindows() public {
-    //     string memory rpc = vm.envString("RPC");
-    //     console2.log(1 seconds, 1 hours, 1 days);
-    //     optimismFork = vm.createSelectFork(rpc, 115651661);
-    //     console2.log("Length USDC/ERN: ", IVeloPair(veloUsdcErnPool).observationLength());
+    function testOraclesOnPriceManipulationsComparison_UsdcWhale() public {
+        uint256 amount = IERC20(usdcAddress).balanceOf(usdcWhale);
+        MinAmountOutData memory minAmountOutData = MinAmountOutData(MinAmountOutKind.Absolute, 0);
 
-    //     optimismFork = vm.createSelectFork(rpc, 115651661 - 30 minutes);
-    //     console2.log("Length 30 minutes USDC/ERN: ", IVeloPair(veloUsdcErnPool).observationLength());
-
-    //     optimismFork = vm.createSelectFork(rpc, 115651661 - 1 hours);
-    //     console2.log("Length 1 hour USDC/ERN: ", IVeloPair(veloUsdcErnPool).observationLength());
-    //     optimismFork = vm.createSelectFork(rpc, 115651661 - 2 hours);
-    //     console2.log("Length 2 hours USDC/ERN: ", IVeloPair(veloUsdcErnPool).observationLength());
-    //     optimismFork = vm.createSelectFork(rpc, 115651661 - 3 hours);
-    //     console2.log("Length 3 hours USDC/ERN: ", IVeloPair(veloUsdcErnPool).observationLength());
-    //     optimismFork = vm.createSelectFork(rpc, 115651661 - 4 hours);
-    //     console2.log("Length 4 hours USDC/ERN: ", IVeloPair(veloUsdcErnPool).observationLength());
-    //     optimismFork = vm.createSelectFork(rpc, 115651661 - 1 days);
-    //     console2.log("Length -1 day USDC/ERN: ", IVeloPair(veloUsdcErnPool).observationLength());
-    //     optimismFork = vm.createSelectFork(rpc, 115651661 - 10 days);
-    //     console2.log("Length -2 days USDC/ERN: ", IVeloPair(veloUsdcErnPool).observationLength());
-    // }
-
-    // function testTarotOracle() public {
-    //     uint256 amount = 20000e18;
-    //     MinAmountOutData memory minAmountOutData = MinAmountOutData(MinAmountOutKind.Absolute, 0);
-    //     vm.warp(block.timestamp + 1 days);
-    //     (uint256 result, uint256 timestamp) = tarot.getResult(veloUsdcErnPool);
-    //     console2.log("1. Result before swap: ", result);
-    //     vm.startPrank(ernWhale);
-    //     console2.log("1. Whale balance of ERN", IERC20(ernAddress).balanceOf(ernWhale));
-    //     console2.log("1. Whale balance of USDC", IERC20(usdcAddress).balanceOf(ernWhale) * 1e12);
-    //     IERC20Upgradeable(ernAddress).approve(address(reaperSwapper), amount);
-    //     reaperSwapper.swapVelo(ernAddress, usdcAddress, amount, minAmountOutData, address(veloRouter));
-    //     console2.log("2. Whale balance of ERN", IERC20(ernAddress).balanceOf(ernWhale));
-    //     console2.log("2. Whale balance of USDC", IERC20(usdcAddress).balanceOf(ernWhale) * 1e12);
-    //     (result, timestamp) = tarot.getResult(veloUsdcErnPool);
-    //     console2.log("2. Result after swap: ", result);
-    //     vm.stopPrank();
-    //     vm.warp(block.timestamp + 1 weeks);
-    //     (result, timestamp) = tarot.getResult(veloUsdcErnPool);
-    //     console2.log("3. Result after 1 week: ", result);
-    // }
+        uint256 result = wrappedProxy.getErnAmountForUsdcVeloPoints(1 ether, 2 days);
+        console2.log("1. Result before swap: ", result);
+        result = wrappedProxy.getErnAmountForUsdcVeloWindow(1 ether, 2 days);
+        console2.log("1. Result1 before swap: ", result);
+        vm.startPrank(usdcWhale);
+        console2.log("1. Whale balance of ERN", IERC20(ernAddress).balanceOf(usdcWhale));
+        console2.log("1. Whale balance of USDC", amount * 1e12);
+        IERC20Upgradeable(usdcAddress).approve(address(reaperSwapper), amount);
+        reaperSwapper.swapVelo(usdcAddress, ernAddress, amount, minAmountOutData, address(veloRouter));
+        console2.log("2. Whale balance of ERN", IERC20(ernAddress).balanceOf(ernWhale));
+        console2.log("2. Whale balance of USDC", IERC20(usdcAddress).balanceOf(ernWhale) * 1e12);
+        vm.warp(block.timestamp + 1 days);
+        IVeloPair(veloUsdcErnPool).sync(); // imitates vm.warp(block.timestamp + 1 days);
+        result = wrappedProxy.getErnAmountForUsdcVeloPoints(1 ether, 2 days);
+        console2.log("2. Result (points) after 1 day from swap: ", result);
+        result = wrappedProxy.getErnAmountForUsdcVeloWindow(1 ether, 2 days);
+        console2.log("2. Result (window) after 1 day from swap: ", result);
+        vm.warp(block.timestamp + 1 weeks);
+        IVeloPair(veloUsdcErnPool).sync(); //Imitates vm.warp(block.timestamp + 1 weeks);
+        IVeloPair(veloUsdcErnPool).sync();
+        IVeloPair(veloUsdcErnPool).sync();
+        IVeloPair(veloUsdcErnPool).sync();
+        IVeloPair(veloUsdcErnPool).sync();
+        IVeloPair(veloUsdcErnPool).sync();
+        IVeloPair(veloUsdcErnPool).sync();
+        result = wrappedProxy.getErnAmountForUsdcVeloPoints(1 ether, 2 days);
+        console2.log("2. Result (points) after 1 week from swap: ", result);
+        result = wrappedProxy.getErnAmountForUsdcVeloWindow(1 ether, 2 days);
+        console2.log("2. Result (window) after 1 week from swap: ", result);
+        vm.warp(block.timestamp + 1 weeks);
+        IVeloPair(veloUsdcErnPool).sync(); //Imitates vm.warp(block.timestamp + 1 weeks);
+        IVeloPair(veloUsdcErnPool).sync();
+        IVeloPair(veloUsdcErnPool).sync();
+        IVeloPair(veloUsdcErnPool).sync();
+        IVeloPair(veloUsdcErnPool).sync();
+        IVeloPair(veloUsdcErnPool).sync();
+        IVeloPair(veloUsdcErnPool).sync();
+        IVeloPair(veloUsdcErnPool).sync();
+        result = wrappedProxy.getErnAmountForUsdcVeloPoints(1 ether, 2 days);
+        console2.log("2. Result (points) after 2 weeks from swap: ", result);
+        result = wrappedProxy.getErnAmountForUsdcVeloWindow(1 ether, 2 days);
+        console2.log("2. Result (window) after 2 weeks from swap: ", result);
+    }
 }

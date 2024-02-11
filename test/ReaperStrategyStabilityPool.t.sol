@@ -787,7 +787,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         console.log("poolBalanceBefore: ", poolBalanceBefore);
         console.log("poolBalanceAfter: ", poolBalanceAfter);
 
-        uint32 currentTwapPeriod = wrappedProxy.twapPeriod();
+        uint32 currentTwapPeriod = wrappedProxy.uniV3TWAPPeriod();
 
         address[] memory pools = new address[](1);
         pools[0] = address(uniV3UsdcErnPool);
@@ -883,10 +883,10 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
         address[] memory pools = new address[](1);
         pools[0] = address(uniV3UsdcErnPool);
-        uint32 twapPeriod = wrappedProxy.twapPeriod();
-        console.log("twapPeriod: ", twapPeriod);
+        uint32 uniV3TWAPPeriod = wrappedProxy.uniV3TWAPPeriod();
+        console.log("uniV3TWAPPeriod: ", uniV3TWAPPeriod);
         uint256 ernAmount = IStaticOracle(uniV3TWAP).quoteSpecificPoolsWithTimePeriod(
-            uint128(usdcAmount), usdcAddress, wantAddress, pools, twapPeriod
+            uint128(usdcAmount), usdcAddress, wantAddress, pools, uniV3TWAPPeriod
         );
         uint256 wantValueInCollateral = wrappedProxy.getERNValueOfCollateralGain();
 
@@ -1113,30 +1113,30 @@ contract ReaperStrategyStabilityPoolTest is Test {
         console.log("priceQuoteSpot1: ", priceQuoteSpot);
     }
 
-    function testUpdateTwapPeriod() public {
+    function testUpdateUniV3TWAPPeriod() public {
         uint32 period = 36000;
-        wrappedProxy.updateTwapPeriod(period);
+        wrappedProxy.updateUniV3TWAPPeriod(period);
 
         (uint32 earliestObservationTimestamp,,,) = IUniswapV3Pool(uniV3UsdcErnPool).observations(0);
         uint32 currentTimeStamp = uint32(block.timestamp);
         uint32 timeDifference = currentTimeStamp - earliestObservationTimestamp;
         period = timeDifference;
 
-        wrappedProxy.updateTwapPeriod(period);
+        wrappedProxy.updateUniV3TWAPPeriod(period);
 
         period += 1;
         console.log("period: ", period);
         vm.expectRevert(bytes("OLD"));
-        wrappedProxy.updateTwapPeriod(period);
+        wrappedProxy.updateUniV3TWAPPeriod(period);
 
         period = type(uint32).max;
         vm.expectRevert(bytes("OLD"));
-        wrappedProxy.updateTwapPeriod(period);
+        wrappedProxy.updateUniV3TWAPPeriod(period);
     }
 
     function testChangeTwapPeriod() public {
         uint32 oldPeriod = 36000;
-        wrappedProxy.updateTwapPeriod(oldPeriod);
+        wrappedProxy.updateUniV3TWAPPeriod(oldPeriod);
 
         uint256 usdcInPool = IERC20Upgradeable(usdcAddress).balanceOf(uniV3UsdcErnPool);
         console.log("usdcInPool: ", usdcInPool);
@@ -1152,18 +1152,18 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
         uint32 newPeriod = 7200;
         // DEFAULT_ADMIN_ROLE is allowed regardless
-        wrappedProxy.updateTwapPeriod(newPeriod);
-        wrappedProxy.updateTwapPeriod(oldPeriod);
+        wrappedProxy.updateUniV3TWAPPeriod(newPeriod);
+        wrappedProxy.updateUniV3TWAPPeriod(oldPeriod);
         // 0 collateral value is allowed regardless
         vm.startPrank(adminAddress);
-        wrappedProxy.updateTwapPeriod(newPeriod);
-        wrappedProxy.updateTwapPeriod(oldPeriod);
+        wrappedProxy.updateUniV3TWAPPeriod(newPeriod);
+        wrappedProxy.updateUniV3TWAPPeriod(oldPeriod);
         // ADMIN role with collateral is blocked
         deal({token: usdcAddress, to: address(wrappedProxy), give: 1_000_000});
         vm.expectRevert("TWAP duration change would change price");
-        wrappedProxy.updateTwapPeriod(newPeriod);
+        wrappedProxy.updateUniV3TWAPPeriod(newPeriod);
         vm.stopPrank();
-        wrappedProxy.updateTwapPeriod(oldPeriod);
+        wrappedProxy.updateUniV3TWAPPeriod(oldPeriod);
     }
 
     function liquidateTroves(address asset) internal {
