@@ -4,4 +4,3 @@ ds-test/=lib/vault-v2/lib/forge-std/lib/ds-test/src/
 forge-std/=lib/vault-v2/lib/forge-std/src/
 oz-upgradeable/=lib/vault-v2/lib/openzeppelin-contracts-upgradeable/contracts/
 oz/=lib/vault-v2/lib/openzeppelin-contracts/contracts/
-tarot-oracle/=lib/tarot-price-oracle/contracts/
