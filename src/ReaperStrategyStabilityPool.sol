@@ -505,7 +505,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
      * using the all possible oracles.
      */
     function getErnAmountForUsdcAll(uint256[] memory _prices, uint32 _tolerance) public view returns (uint256) {
-        uint256 meanTwap = 0;
+        uint256 averageTwap = 0;
         if (_prices.length > 1) {
             for (uint32 idx = 0; idx < _prices.length; idx++) {
                 (bool[] memory indexes, uint32 nrOfValidPrices) = getInfoAboutTwapOracles(_prices, idx, _tolerance);
@@ -518,19 +518,19 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
                             sumOfPrices += _prices[cnt];
                         }
                     }
-                    meanTwap = sumOfPrices / nrOfValidPrices;
+                    averageTwap = sumOfPrices / nrOfValidPrices;
                     break;
                 }
             }
-            if (meanTwap == 0) {
+            if (averageTwap == 0) {
                 revert CouldntDetermineMeanPrice();
             }
         } else if (_prices.length == 1) {
-            meanTwap = _prices[0];
+            averageTwap = _prices[0];
         } else {
             revert CouldntDetermineMeanPrice();
         }
-        return meanTwap;
+        return averageTwap;
     }
 
     /**
