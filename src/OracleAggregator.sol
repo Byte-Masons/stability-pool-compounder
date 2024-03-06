@@ -42,6 +42,8 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin {
         }
     }
 
+    /// @param route List of oracles for multihop price
+    /// @param baseAmount Input amount of the base token
     function getMultiHopPrice(OracleRoute memory route, uint256 baseAmount) public returns (uint256 price) {
         for (uint256 i = 0; i < route.oracles.length; i++) {
             price = getPrice(route.oracles[i], baseAmount);
@@ -49,6 +51,8 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin {
         }
     }
 
+    /// @param oracle Kind of oracle to use -- see OracleKind
+    /// @param baseAmount  Input amount of the base token
     function getPrice(Oracle memory oracle, uint256 baseAmount) public returns (uint256 price) {
         if (oracle.kind == OracleKind.Velo) {
             return getVeloPrice(oracle.source, oracle.target, uint32(oracle.period), baseAmount);
@@ -61,6 +65,12 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin {
         }
     }
 
+    /// @notice Get the mean price of a list of prices, filtering out outliers
+    /// @param prices List of prices
+    /// @param maxMadRelativeToMedianBPS How many BPS the MAD can be relative to the median.
+    /// For example, a MAD higher than 10% of the median means the prices are too spread out,
+    /// and the whole list is considered unreliable.
+    /// @param maxScoreBPS If a price has a Z-score higher than this, it's considered an outlier and filtered out
     function getMeanPrice(uint256[] memory prices, uint256 maxMadRelativeToMedianBPS, uint256 maxScoreBPS)
         public
         pure
@@ -73,6 +83,11 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin {
         return mean;
     }
 
+    /// @param prices List of prices to be checked
+    /// @param maxScoreBPS If a price has a Z-score higher than this, it's considered an outlier and filtered out
+    /// @return An array mask for the prices array, where true means the price is invalid
+    /// @return The MAD - Median Absolute Deviation
+    /// @return The median of the prices
     function getValidityByZScore(uint256[] memory prices, uint256 maxScoreBPS)
         public
         pure
@@ -109,6 +124,8 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin {
         }
     }
 
+    /// @notice Get the Median Absolute Deviation of a list of values
+    /// @param arr List of values
     function getMAD(uint256[] memory arr) public pure returns (uint256 mad, uint256 median) {
         uint256 n = arr.length;
         quickSort(arr, 0, int256(n - 1));
