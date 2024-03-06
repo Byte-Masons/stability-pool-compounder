@@ -61,35 +61,78 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin {
         }
     }
 
-    function getMeanPrice(uint256[] memory prices, uint256 maxStdRelativeToMeanBPS, uint256 maxScoreBPS)
+    function getMeanPrice(uint256[] memory prices, uint256 maxMadRelativeToMedianBPS, uint256 maxScoreBPS)
         public
         pure
         returns (uint256)
     {
-        (bool[] memory isInvalid) = getValidityByZScore(prices, maxScoreBPS);
-        (uint256 std, uint256 mean, uint256 nrOfValidPrices) = standardDeviation(prices, isInvalid);
-        if (std * BPS / mean > maxStdRelativeToMeanBPS) revert Oracle_OraclesUnreliable();
-        if (nrOfValidPrices < 2) revert Oracle_OraclesUnreliable();
+        (bool[] memory isInvalid, uint256 mad, uint256 median) = getValidityByZScore(prices, maxScoreBPS);
+        (uint256 mean, uint256 nrOfValidPrices) = getMean(prices, isInvalid);
+        if (mad > (median * maxMadRelativeToMedianBPS) / BPS) revert Oracle_OraclesUnreliable();
+        if (nrOfValidPrices < ((prices.length * 3) / 5)) revert Oracle_OraclesUnreliable();
         return mean;
     }
 
     function getValidityByZScore(uint256[] memory prices, uint256 maxScoreBPS)
         public
         pure
-        returns (bool[] memory isInvalid)
+        returns (bool[] memory, uint256, uint256)
     {
-        (uint256 std, uint256 mean,) = standardDeviation(prices, new bool[](prices.length));
-        isInvalid = new bool[](prices.length);
+        (uint256 mad, uint256 median) = getMAD(prices);
+        bool[] memory isInvalid = new bool[](prices.length);
         for (uint256 i = 0; i < prices.length; i++) {
-            int256 score = (int256(prices[i]) - int256(mean)) * int256(BPS) / int256(std);
+            int256 score = (int256(prices[i]) - int256(median)) * int256(BPS) / int256(mad);
             isInvalid[i] = score < -int256(maxScoreBPS) || score > int256(maxScoreBPS);
+        }
+        return (isInvalid, mad, median);
+    }
+
+    function quickSort(uint256[] memory arr, int256 left, int256 right) internal pure {
+        int256 i = left;
+        int256 j = right;
+        if (i == j) return;
+        uint256 pivot = arr[uint256(left + (right - left) / 2)];
+        while (i <= j) {
+            while (arr[uint256(i)] < pivot) i++;
+            while (pivot < arr[uint256(j)]) j--;
+            if (i <= j) {
+                (arr[uint256(i)], arr[uint256(j)]) = (arr[uint256(j)], arr[uint256(i)]);
+                i++;
+                j--;
+            }
+        }
+        if (left < j) {
+            quickSort(arr, left, j);
+        }
+        if (i < right) {
+            quickSort(arr, i, right);
         }
     }
 
-    function standardDeviation(uint256[] memory prices, bool[] memory isInvalid)
+    function getMAD(uint256[] memory arr) public pure returns (uint256 mad, uint256 median) {
+        uint256 n = arr.length;
+        quickSort(arr, 0, int256(n - 1));
+        if (n % 2 == 0) {
+            median = (arr[n / 2 - 1] + arr[n / 2]) / 2;
+        } else {
+            median = arr[n / 2];
+        }
+        uint256[] memory deviations = new uint256[](n);
+        for (uint256 i = 0; i < n; i++) {
+            if (arr[i] > median) {
+                deviations[i] = arr[i] - median;
+            } else {
+                deviations[i] = median - arr[i];
+            }
+        }
+        quickSort(deviations, 0, int256(n - 1));
+        mad = deviations[n / 2];
+    }
+
+    function getMean(uint256[] memory prices, bool[] memory isInvalid)
         public
         pure
-        returns (uint256 std, uint256 mean, uint256 nrValidPrices)
+        returns (uint256 mean, uint256 nrValidPrices)
     {
         uint256 sum = 0;
         for (uint256 i = 0; i < prices.length; i++) {
@@ -99,16 +142,6 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin {
             }
         }
         mean = sum / nrValidPrices;
-        uint256[] memory deviationsSq = new uint256[](nrValidPrices);
-        for (uint256 i = 0; i < nrValidPrices; i++) {
-            int256 deviation = int256(prices[i]) - int256(mean);
-            deviationsSq[i] = uint256(deviation * deviation);
-        }
-        uint256 sumDeviationsSq = 0;
-        for (uint256 i = 0; i < deviationsSq.length; i++) {
-            sumDeviationsSq += deviationsSq[i];
-        }
-        std = MathUpgradeable.sqrt(sumDeviationsSq / nrValidPrices, MathUpgradeable.Rounding.Up);
     }
 
     function getPriceFeedPrice(address source, address target, uint256 baseAmount) public returns (uint256 price) {
