@@ -96,13 +96,7 @@ contract TarotOracleTest is Test {
         reaperSwapper.updateVeloSwapPath(usdcAddress, ernAddress, address(veloRouter), veloPath);
 
         vault = new ReaperVaultV2(
-            wantAddress,
-            vaultName,
-            vaultSymbol,
-            vaultTvlCap,
-            treasuryAddress,
-            strategists,
-            multisigRoles
+            wantAddress, vaultName, vaultSymbol, vaultTvlCap, treasuryAddress, strategists, multisigRoles
         );
 
         ReaperStrategyStabilityPool.ExchangeSettings memory exchangeSettings;

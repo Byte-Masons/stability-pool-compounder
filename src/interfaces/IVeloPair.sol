@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+struct Cumulatives {
+    uint256 reserve0Cumulative;
+    uint256 reserve1Cumulative;
+    uint256 blockTimestamp;
+}
+
 interface IVeloPair {
     error DepositsNotEqual();
     error BelowMinimumK();
@@ -33,10 +39,9 @@ interface IVeloPair {
 
     function reserve1CumulativeLast() external view returns (uint256);
 
-    function currentCumulativePrices()
-        external
-        view
-        returns (uint256 reserve0Cumulative, uint256 reserve1Cumulative, uint256 blockTimestamp);
+    function currentCumulativePrices() external view returns (Cumulatives memory);
+
+    function observations(uint256 index) external view returns (uint256, uint256, uint256);
 
     function prices(address tokenIn, uint256 amountIn, uint256 points) external view returns (uint256[] memory);
 
@@ -45,7 +50,15 @@ interface IVeloPair {
         view
         returns (uint256[] memory);
 
+    function tokens() external view returns (address, address);
+
+    function stable() external view returns (bool);
+
     function observationLength() external view returns (uint256);
 
     function sync() external;
+
+    function token0() external view returns (address);
+
+    function token1() external view returns (address);
 }

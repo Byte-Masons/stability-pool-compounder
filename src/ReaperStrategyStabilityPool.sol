@@ -19,7 +19,6 @@ import {IVeloPair} from "./interfaces/IVeloPair.sol";
 /**
  * @dev Strategy to compound rewards and liquidation collateral gains in the Ethos stability pool
  */
-
 contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     using ReaperMathUtils for uint256;
     using SafeERC20Upgradeable for IERC20MetadataUpgradeable;
