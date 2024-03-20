@@ -14,31 +14,37 @@ import {IUniswapV3Pool} from "./interfaces/IUniswapV3Pool.sol";
 import {IERC20MetadataUpgradeable} from "oz-upgradeable/token/ERC20/extensions/IERC20MetadataUpgradeable.sol";
 import {SafeERC20Upgradeable} from "oz-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 import {MathUpgradeable} from "oz-upgradeable/utils/math/MathUpgradeable.sol";
+import {OracleAggregator} from "./OracleAggregator.sol";
 
 /**
  * @dev Strategy to compound rewards and liquidation collateral gains in the Ethos stability pool
  */
-
-contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
+contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, OracleAggregator {
     using ReaperMathUtils for uint256;
     using SafeERC20Upgradeable for IERC20MetadataUpgradeable;
+
+    // constants
+
+    uint256 constant MAXIMUM_ALLOWED_RELATIVE_CHANGE = 300; // 3%
+    uint256 public constant MAX_MAD_RELATIVE_TO_MEDIAN_BPS = 3000000;
+    uint256 public constant MAX_SCORE_BPS = 10000;
 
     // 3rd-party contract addresses
     IStabilityPool public stabilityPool;
     IPriceFeed public priceFeed;
     IERC20MetadataUpgradeable public usdc;
     ExchangeSettings public exchangeSettings; // Holds addresses to use Velo, UniV3 and Bal through Swapper
-    IUniswapV3Pool public uniV3UsdcErnPool;
-    IStaticOracle public uniV3TWAP;
 
     uint256 public constant ETHOS_DECIMALS = 18; // Decimals used by ETHOS
     uint256 public ernMinAmountOutBPS; // The max allowed slippage when trading in to ERN
     uint256 public compoundingFeeMarginBPS; // How much collateral value is lowered to account for the costs of swapping
-    uint32 public uniV3TWAPPeriod; // How many seconds the uniV3 TWAP will look at
     ExchangeType public usdcToErnExchange; // Controls which exchange is used to swap USDC to ERN
     bool public shouldOverrideHarvestBlock; // If reverts on TWAP out of normal range should be ignored
     uint256 acceptableTWAPUpperBound; // The normal upper price for the TWAP, reverts harvest if above
     uint256 acceptableTWAPLowerBound; // The normal lower price for the , reverts harvest if below
+
+    OracleRoute[] internal ernForUsdcOracles;
+    OracleRoute[] internal ernForUsdcViewOracles;
 
     struct ExchangeSettings {
         address veloRouter;
@@ -49,7 +55,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
 
     struct Pools {
         address stabilityPool;
-        address uniV3UsdcErnPool;
     }
 
     struct Tokens {
@@ -58,14 +63,13 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     }
 
     error InvalidUsdcToErnExchange(uint256 exchangeEnum);
-    error InvalidUsdcToErnTWAP(uint256 twapEnum);
-    error TWAPOutsideAllowedRange(uint256 usdcPrice);
+    error TWAPOutsideAllowedRange(uint256 ernPrice);
     error InvalidSwapStep();
-
     /**
      * @dev Initializes the strategy. Sets parameters, saves routes, and gives allowances.
      * @notice see documentation for each variable above its respective declaration.
      */
+
     function initialize(
         address _vault,
         address _swapper,
@@ -74,6 +78,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         address[] memory _keepers,
         address _priceFeed,
         address _uniV3TWAP,
+        OracleRoute[] calldata _ernForUsdcOracles,
         ExchangeSettings calldata _exchangeSettings,
         Pools calldata _pools,
         Tokens calldata _tokens
@@ -91,7 +96,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         require(_exchangeSettings.uniV3Router != address(0), "uniV3Router is 0 address");
         require(_exchangeSettings.uniV2Router != address(0), "uniV2Router is 0 address");
         require(_pools.stabilityPool != address(0), "stabilityPool is 0 address");
-        require(_pools.uniV3UsdcErnPool != address(0), "uniV3UsdcErnPool is 0 address");
 
         __ReaperBaseStrategy_init(_vault, _swapper, _tokens.want, _strategists, _multisigRoles, _keepers);
         stabilityPool = IStabilityPool(_pools.stabilityPool);
@@ -102,10 +106,8 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         updateErnMinAmountOutBPS(9800);
         usdcToErnExchange = ExchangeType.UniV3;
 
-        uniV3TWAP = IStaticOracle(_uniV3TWAP);
-        uniV3UsdcErnPool = IUniswapV3Pool(_pools.uniV3UsdcErnPool);
         compoundingFeeMarginBPS = 9950;
-        updateUniV3TWAPPeriod(7200);
+        updateOracles(_ernForUsdcOracles);
         updateAcceptableTWAPBounds(980_000, 1_100_000);
     }
 
@@ -164,18 +166,15 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         }
     }
 
-    function _revertOnTWAPOutsideRange() internal view {
+    function _revertOnTWAPOutsideRange() internal {
         if (shouldOverrideHarvestBlock) {
             return;
         }
-        uint128 ernAmount = 1 ether; // 1 ERN
-        address[] memory pools = new address[](1);
-        pools[0] = address(uniV3UsdcErnPool);
-        uint256 usdcAmount =
-            uniV3TWAP.quoteSpecificPoolsWithTimePeriod(ernAmount, want, address(usdc), pools, uniV3TWAPPeriod);
+        uint128 usdcAmount = 1 ether; // 1 ERN
+        uint256 ernAmount = _getErnAmountForUsdc(usdcAmount);
 
-        if (usdcAmount < acceptableTWAPLowerBound || usdcAmount > acceptableTWAPUpperBound) {
-            revert TWAPOutsideAllowedRange(usdcAmount);
+        if (ernAmount < acceptableTWAPLowerBound || ernAmount > acceptableTWAPUpperBound) {
+            revert TWAPOutsideAllowedRange(ernAmount);
         }
     }
 
@@ -242,20 +241,22 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
 
     /**
      * @dev Calculates the estimated ERN value of collateral and USDC using Chainlink oracles
-     * and the Velodrome USDC-ERN TWAP.
+     * and the set TWAP oracles - uses only view functions.
      */
     function getERNValueOfCollateralGain() public view returns (uint256 ernValueOfCollateral) {
         uint256 usdValueOfCollateralGain = getUSDValueOfCollateralGain();
-        ernValueOfCollateral = getERNValueOfCollateralGainCommon(usdValueOfCollateralGain);
+        uint256 totalUsdcValue = getERNValueOfCollateralGainCommon(usdValueOfCollateralGain);
+        ernValueOfCollateral = _getErnAmountForUsdcView(totalUsdcValue);
     }
 
     /**
      * @dev Calculates the estimated ERN value of collateral using the Ethos price feed, Chainlink oracle for USDC
-     * and the Velodrome USDC-ERN TWAP.
+     * and the set TWAP oracles.
      */
     function getERNValueOfCollateralGainUsingPriceFeed() public returns (uint256 ernValueOfCollateral) {
         uint256 usdValueOfCollateralGain = getUSDValueOfCollateralGainUsingPriceFeed();
-        ernValueOfCollateral = getERNValueOfCollateralGainCommon(usdValueOfCollateralGain);
+        uint256 totalUsdcValue = getERNValueOfCollateralGainCommon(usdValueOfCollateralGain);
+        ernValueOfCollateral = _getErnAmountForUsdc(totalUsdcValue);
     }
 
     /**
@@ -264,12 +265,11 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     function getERNValueOfCollateralGainCommon(uint256 _usdValueOfCollateralGain)
         public
         view
-        returns (uint256 ernValueOfCollateral)
+        returns (uint256 totalUsdcValue)
     {
         uint256 usdcValueOfCollateral = _getUsdcEquivalentOfUSD(_usdValueOfCollateralGain);
         uint256 usdcBalance = usdc.balanceOf(address(this));
-        uint256 totalUsdcValue = usdcBalance + usdcValueOfCollateral;
-        ernValueOfCollateral = _getErnAmountForUsdc(totalUsdcValue);
+        totalUsdcValue = usdcBalance + usdcValueOfCollateral;
     }
 
     /**
@@ -312,24 +312,31 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
 
     /**
      * @dev Returns the {expectedErnAmount} for the specified {_usdcAmount} of USDC using
-     * the UniV3 TWAP.
+     * TWAPs.
      */
-    function _getErnAmountForUsdc(uint256 _usdcAmount) internal view returns (uint256 expectedErnAmount) {
+    function _getErnAmountForUsdc(uint256 _usdcAmount) internal returns (uint256 expectedErnAmount) {
         if (_usdcAmount != 0) {
-            expectedErnAmount = getErnAmountForUsdcUniV3(uint128(_usdcAmount), uniV3TWAPPeriod);
+            uint256[] memory prices = getTwapPrices(ernForUsdcOracles, _usdcAmount);
+            return getMeanPrice(prices, MAX_MAD_RELATIVE_TO_MEDIAN_BPS, MAX_SCORE_BPS);
         }
     }
 
     /**
-     * @dev Returns the {ernAmount} for the specified {_baseAmount} of USDC over a given {_period} (in seconds)
-     * using the UniV3 TWAP.
+     * @dev Returns the {expectedErnAmount} for the specified {_usdcAmount} of USDC using
+     * the UniV3 TWAP.
      */
-    function getErnAmountForUsdcUniV3(uint128 _baseAmount, uint32 _period) public view returns (uint256 ernAmount) {
-        address[] memory pools = new address[](1);
-        pools[0] = address(uniV3UsdcErnPool);
-        uint256 quoteAmount =
-            uniV3TWAP.quoteSpecificPoolsWithTimePeriod(_baseAmount, address(usdc), want, pools, _period);
-        return quoteAmount;
+    function _getErnAmountForUsdcView(uint256 _usdcAmount) internal view returns (uint256 expectedErnAmount) {
+        if (_usdcAmount != 0) {
+            uint256[] memory prices = getTwapPricesView(ernForUsdcViewOracles, _usdcAmount);
+            return getMeanPrice(prices, MAX_MAD_RELATIVE_TO_MEDIAN_BPS, MAX_SCORE_BPS);
+        }
+    }
+
+    /**
+     * @dev See above.
+     */
+    function getErnAmountForUsdcView(uint256 _usdcAmount) external view returns (uint256) {
+        return _getErnAmountForUsdcView(_usdcAmount);
     }
 
     /**
@@ -409,22 +416,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     }
 
     /**
-     * @dev Scales {_collAmount} given in 18 decimals to an amount in {_collDecimals}
-     */
-    function _scaleToCollateralDecimals(uint256 _collAmount, uint256 _collDecimals)
-        internal
-        pure
-        returns (uint256 scaledColl)
-    {
-        scaledColl = _collAmount;
-        if (_collDecimals > ETHOS_DECIMALS) {
-            scaledColl = scaledColl * (10 ** (_collDecimals - ETHOS_DECIMALS));
-        } else if (_collDecimals < ETHOS_DECIMALS) {
-            scaledColl = scaledColl / (10 ** (ETHOS_DECIMALS - _collDecimals));
-        }
-    }
-
-    /**
      * Swapping to ERN (want) is hardcoded in this strategy and relies on TWAP so
      * a swap step should not be set to swap to it.
      */
@@ -469,32 +460,24 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     }
 
     /**
-     * @dev Sets the period (in seconds) used to query the UniV3 TWAP
-     * The pool itself has a {currentCardinality} by calling
-     * increaseObservationCardinalityNext on the UniV3 pool.
-     * The earliest observation in the pool must be within the given time period.
-     * Will revert if the observation period is too long.
-     * DEFAULT_ADMIN is allowed to change the value regardless, but for lower access
-     * roles a check is performed to see if changing duration would effect the price
-     * past some threshold, if the strategy holds collateral value (priced by TWAP).
+     * @dev Sets the period (in seconds) used to query the UniV3 TWAP.
      */
-    function updateUniV3TWAPPeriod(uint32 _uniV3TWAPPeriod) public {
-        _atLeastRole(ADMIN);
-        require(_uniV3TWAPPeriod >= 7200, "TWAP period is too short");
+    function updateOracles(OracleRoute[] calldata newRoutes) public {
+        _atLeastRole(DEFAULT_ADMIN_ROLE);
+        ernForUsdcOracles = newRoutes;
 
-        uint256 newErnAmount = getErnAmountForUsdcUniV3(uint128(1_000_000), _uniV3TWAPPeriod);
-        uint256 oldErnAmount = getErnAmountForUsdcUniV3(uint128(1_000_000), uniV3TWAPPeriod);
-
-        uniV3TWAPPeriod = _uniV3TWAPPeriod;
-
-        if (_hasRole(DEFAULT_ADMIN_ROLE, msg.sender)) return;
-
-        uint256 ernCollateralValue = getERNValueOfCollateralGainUsingPriceFeed();
-
-        if (ernCollateralValue != 0) {
-            uint256 difference = newErnAmount > oldErnAmount ? newErnAmount - oldErnAmount : oldErnAmount - newErnAmount;
-            uint256 relativeChange = difference * PERCENT_DIVISOR / oldErnAmount;
-            require(relativeChange < 300, "TWAP duration change would change price");
+        // reset the view-only oracles)
+        ernForUsdcViewOracles = new OracleRoute[](0);
+        // filter out the price feed oracles and set the view-only oracles
+        for (uint256 i = 0; i < newRoutes.length; i++) {
+            for (uint256 j = 0; j < newRoutes[i].oracles.length; j++) {
+                if (newRoutes[i].oracles[j].kind == OracleKind.PriceFeed) {
+                    break;
+                }
+                if (j == newRoutes[i].oracles.length - 1) {
+                    ernForUsdcViewOracles.push(newRoutes[i]);
+                }
+            }
         }
     }
 
