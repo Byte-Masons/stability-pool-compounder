@@ -51,8 +51,12 @@ contract VeloTwapMixin {
         return _veloGetAmountOut(baseAmount, target, reserve0, reserve1, pair.stable(), pair);
     }
 
-    // Utils
-
+    /**
+     * Utils
+     * Below are the functions that are used to calculate the price of a token in a Velo pool.
+     * This code is adapted from Velodrome's contracts directly, with changes to use parameters
+     * instead of state variables.
+     */
     struct GetAmountOutLocalVars {
         uint256 decimals0;
         uint256 decimals1;

@@ -35,6 +35,30 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin {
         OracleKind kind;
     }
 
+    function getTwapPricesView(OracleRoute[] memory oracles, uint256 baseAmount)
+        public
+        view
+        returns (uint256[] memory prices)
+    {
+        prices = new uint256[](oracles.length);
+        for (uint256 i = 0; i < oracles.length; i++) {
+            prices[i] = getMultiHopPriceView(oracles[i], baseAmount);
+        }
+    }
+
+    /// @param route List of oracles for multihop price
+    /// @param baseAmount Input amount of the base token
+    function getMultiHopPriceView(OracleRoute memory route, uint256 baseAmount) public view returns (uint256 price) {
+        for (uint256 i = 0; i < route.oracles.length; i++) {
+            price = getPrice(route.oracles[i], baseAmount);
+            baseAmount = price;
+        }
+    }
+
+    /**
+     * state-changing versions of the above functions
+     * This allows the Kind of oracle to be PriceFeed
+     */
     function getTwapPrices(OracleRoute[] memory oracles, uint256 baseAmount) public returns (uint256[] memory prices) {
         prices = new uint256[](oracles.length);
         for (uint256 i = 0; i < oracles.length; i++) {
@@ -46,6 +70,11 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin {
     /// @param baseAmount Input amount of the base token
     function getMultiHopPrice(OracleRoute memory route, uint256 baseAmount) public returns (uint256 price) {
         for (uint256 i = 0; i < route.oracles.length; i++) {
+            if (route.oracles[i].kind == OracleKind.PriceFeed) {
+                price = getPriceFeedPrice(route.oracles[i].source, route.oracles[i].target, baseAmount);
+            } else {
+                price = getPrice(route.oracles[i], baseAmount);
+            }
             price = getPrice(route.oracles[i], baseAmount);
             baseAmount = price;
         }
@@ -53,13 +82,11 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin {
 
     /// @param oracle Kind of oracle to use -- see OracleKind
     /// @param baseAmount  Input amount of the base token
-    function getPrice(Oracle memory oracle, uint256 baseAmount) public returns (uint256 price) {
+    function getPrice(Oracle memory oracle, uint256 baseAmount) public view returns (uint256 price) {
         if (oracle.kind == OracleKind.Velo) {
             return getVeloPrice(oracle.source, oracle.target, uint32(oracle.period), baseAmount);
         } else if (oracle.kind == OracleKind.UniV3) {
             return getUniV3Price(oracle.source, oracle.target, uint32(oracle.period), baseAmount);
-        } else if (oracle.kind == OracleKind.PriceFeed) {
-            return getPriceFeedPrice(oracle.source, oracle.target, baseAmount);
         } else {
             revert Oracle_InvalidKind();
         }
@@ -165,5 +192,6 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin {
         return IPriceFeed(source).fetchPrice(target) * baseAmount;
     }
 
+    // in the case contracts that inhrerit from this one are upgradeable
     uint256[50] private __gap;
 }

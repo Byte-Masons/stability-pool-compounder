@@ -2,5 +2,16 @@
 src = "src"
 out = "out"
 libs = ["lib"]
+via-ir = true
+
+remappings = [
+    "vault-v2/=lib/vault-v2/src/",
+    "univ3-core/=lib/v3-core/contracts/",
+    "mixins/=lib/vault-v2/src/mixins/",
+    "ds-test/=lib/vault-v2/lib/forge-std/lib/ds-test/src/",
+    "forge-std/=lib/vault-v2/lib/forge-std/src/",
+    "oz-upgradeable/=lib/vault-v2/lib/openzeppelin-contracts-upgradeable/contracts/",
+    "oz/=lib/vault-v2/lib/openzeppelin-contracts/contracts/"
+]
 
 # See more config options https://github.com/foundry-rs/foundry/tree/master/config
