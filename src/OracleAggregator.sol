@@ -4,54 +4,57 @@ pragma solidity ^0.8.0;
 
 import {VeloTwapMixin} from "./oracles/VeloTwapMixin.sol";
 import {UniV3TwapMixin} from "./oracles/UniV3TwapMixin.sol";
+import {BalancerTwapMixin} from "./oracles/BalancerTwapMixin.sol";
 import {IPriceFeed} from "./interfaces/IPriceFeed.sol";
 
 import {MathUpgradeable} from "oz-upgradeable/utils/math/MathUpgradeable.sol";
 
+enum OracleKind {
+    Velo,
+    UniV3,
+    Balancer,
+    PriceFeed
+}
+
+struct OracleRoute {
+    Oracle[] oracles;
+}
+
+struct Oracle {
+    address source;
+    address tokenIn;
+    uint256 period;
+    OracleKind kind;
+}
+
 // This contract contains tools for computing TWAP values and
 // making averages between the results, for more reliable prices.
 // Has support for multiple oracles
-contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin {
+contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin {
     error Oracle_VeloOverflow();
     error Oracle_InvalidKind();
-    error Oracle_OraclesUnreliable();
+    error Oracle_PricesSpreadTooHigh();
+    error Oracle_PricesUnreliable();
 
-    uint256 constant BPS = 1_000_000;
+    uint256 constant BPS = 10_000;
 
-    enum OracleKind {
-        Velo,
-        UniV3,
-        PriceFeed
-    }
-
-    struct OracleRoute {
-        Oracle[] oracles;
-    }
-
-    struct Oracle {
-        address source;
-        address target;
-        uint256 period;
-        OracleKind kind;
-    }
-
-    function getTwapPricesView(OracleRoute[] memory oracles, uint256 baseAmount)
-        public
+    function getTwapPricesView(OracleRoute[] memory oracles, uint256 amountIn)
+        external
         view
         returns (uint256[] memory prices)
     {
         prices = new uint256[](oracles.length);
         for (uint256 i = 0; i < oracles.length; i++) {
-            prices[i] = getMultiHopPriceView(oracles[i], baseAmount);
+            prices[i] = getMultiHopPriceView(oracles[i], amountIn);
         }
     }
 
     /// @param route List of oracles for multihop price
-    /// @param baseAmount Input amount of the base token
-    function getMultiHopPriceView(OracleRoute memory route, uint256 baseAmount) public view returns (uint256 price) {
+    /// @param amountIn Input amount of the base token
+    function getMultiHopPriceView(OracleRoute memory route, uint256 amountIn) public view returns (uint256 price) {
         for (uint256 i = 0; i < route.oracles.length; i++) {
-            price = getPrice(route.oracles[i], baseAmount);
-            baseAmount = price;
+            price = _getPrice(route.oracles[i], amountIn);
+            amountIn = price;
         }
     }
 
@@ -59,34 +62,44 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin {
      * state-changing versions of the above functions
      * This allows the Kind of oracle to be PriceFeed
      */
-    function getTwapPrices(OracleRoute[] memory oracles, uint256 baseAmount) public returns (uint256[] memory prices) {
+    function getTwapPrices(OracleRoute[] memory oracles, uint256 amountIn) external returns (uint256[] memory prices) {
         prices = new uint256[](oracles.length);
         for (uint256 i = 0; i < oracles.length; i++) {
-            prices[i] = getMultiHopPrice(oracles[i], baseAmount);
+            prices[i] = _getMultiHopPrice(oracles[i], amountIn);
         }
+    }
+
+    function getMultiHopPrice(OracleRoute memory route, uint256 amountIn) external returns (uint256 price) {
+        return _getMultiHopPrice(route, amountIn);
     }
 
     /// @param route List of oracles for multihop price
-    /// @param baseAmount Input amount of the base token
-    function getMultiHopPrice(OracleRoute memory route, uint256 baseAmount) public returns (uint256 price) {
+    /// @param amountIn Input amount of the base token
+    function _getMultiHopPrice(OracleRoute memory route, uint256 amountIn) internal returns (uint256 price) {
         for (uint256 i = 0; i < route.oracles.length; i++) {
             if (route.oracles[i].kind == OracleKind.PriceFeed) {
-                price = getPriceFeedPrice(route.oracles[i].source, route.oracles[i].target, baseAmount);
+                price = getPriceFeedPrice(route.oracles[i].source, route.oracles[i].tokenIn, amountIn);
             } else {
-                price = getPrice(route.oracles[i], baseAmount);
+                price = _getPrice(route.oracles[i], amountIn);
             }
-            price = getPrice(route.oracles[i], baseAmount);
-            baseAmount = price;
+            price = _getPrice(route.oracles[i], amountIn);
+            amountIn = price;
         }
     }
 
+    function getPrice(Oracle memory oracle, uint256 amountIn) external view returns (uint256 price) {
+        return _getPrice(oracle, amountIn);
+    }
+
     /// @param oracle Kind of oracle to use -- see OracleKind
-    /// @param baseAmount  Input amount of the base token
-    function getPrice(Oracle memory oracle, uint256 baseAmount) public view returns (uint256 price) {
+    /// @param amountIn Input amount of the base token
+    function _getPrice(Oracle memory oracle, uint256 amountIn) internal view returns (uint256 price) {
         if (oracle.kind == OracleKind.Velo) {
-            return getVeloPrice(oracle.source, oracle.target, uint32(oracle.period), baseAmount);
+            return getVeloPrice(oracle.source, oracle.tokenIn, uint32(oracle.period), amountIn);
         } else if (oracle.kind == OracleKind.UniV3) {
-            return getUniV3Price(oracle.source, oracle.target, uint32(oracle.period), baseAmount);
+            return getUniV3Price(oracle.source, oracle.tokenIn, uint32(oracle.period), amountIn);
+        } else if (oracle.kind == OracleKind.Balancer) {
+            return getBalancerPrice(oracle.source, oracle.tokenIn, uint32(oracle.period), amountIn);
         } else {
             revert Oracle_InvalidKind();
         }
@@ -94,19 +107,33 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin {
 
     /// @notice Get the mean price of a list of prices, filtering out outliers
     /// @param prices List of prices
-    /// @param maxMadRelativeToMedianBPS How many BPS the MAD can be relative to the median.
+    /// @param spreadTolerance Is used in two ways:
+    /// 2 prices: The value will be multiplied by 2, and will be how many
+    /// BPS the difference between the two prices can be.
+    /// 3+ prices: How many BPS the MAD can be relative to the median.
     /// For example, a MAD higher than 10% of the median means the prices are too spread out,
     /// and the whole list is considered unreliable.
     /// @param maxScoreBPS If a price has a Z-score higher than this, it's considered an outlier and filtered out
-    function getMeanPrice(uint256[] memory prices, uint256 maxMadRelativeToMedianBPS, uint256 maxScoreBPS)
-        public
+    function getMeanPrice(uint256[] memory prices, uint256 spreadTolerance, uint256 maxScoreBPS)
+        external
         pure
         returns (uint256)
     {
+        if (prices.length == 1) return prices[0];
+        if (prices.length == 2) {
+            if (prices[0] == 0 || prices[1] == 0) revert Oracle_PricesUnreliable();
+            spreadTolerance = spreadTolerance * 2;
+            if (prices[0] > prices[1]) {
+                if (prices[0] > (prices[1] * (BPS + spreadTolerance)) / BPS) revert Oracle_PricesSpreadTooHigh();
+            } else {
+                if (prices[1] > (prices[0] * (BPS + spreadTolerance)) / BPS) revert Oracle_PricesSpreadTooHigh();
+            }
+            return (prices[0] + prices[1]) / 2;
+        }
         (bool[] memory isInvalid, uint256 mad, uint256 median) = getValidityByZScore(prices, maxScoreBPS);
         (uint256 mean, uint256 nrOfValidPrices) = getMean(prices, isInvalid);
-        if (mad > (median * maxMadRelativeToMedianBPS) / BPS) revert Oracle_OraclesUnreliable();
-        if (nrOfValidPrices < ((prices.length * 3) / 5)) revert Oracle_OraclesUnreliable();
+        if (mad > (median * spreadTolerance) / BPS) revert Oracle_PricesSpreadTooHigh();
+        if (nrOfValidPrices < ((prices.length * 3) / 5)) revert Oracle_PricesUnreliable();
         return mean;
     }
 
@@ -123,6 +150,10 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin {
         (uint256 mad, uint256 median) = getMAD(prices);
         bool[] memory isInvalid = new bool[](prices.length);
         for (uint256 i = 0; i < prices.length; i++) {
+            if (mad == 0) {
+                isInvalid[i] = prices[i] != median;
+                continue;
+            }
             int256 score = (int256(prices[i]) - int256(median)) * int256(BPS) / int256(mad);
             isInvalid[i] = score < -int256(maxScoreBPS) || score > int256(maxScoreBPS);
         }
@@ -174,7 +205,7 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin {
     }
 
     function getMean(uint256[] memory prices, bool[] memory isInvalid)
-        public
+        internal
         pure
         returns (uint256 mean, uint256 nrValidPrices)
     {
@@ -185,11 +216,12 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin {
                 nrValidPrices++;
             }
         }
-        mean = sum / nrValidPrices;
+
+        if (nrValidPrices > 0) mean = sum / nrValidPrices;
     }
 
-    function getPriceFeedPrice(address source, address target, uint256 baseAmount) public returns (uint256 price) {
-        return IPriceFeed(source).fetchPrice(target) * baseAmount;
+    function getPriceFeedPrice(address source, address target, uint256 amountIn) public returns (uint256 price) {
+        return IPriceFeed(source).fetchPrice(target) * amountIn;
     }
 
     // in the case contracts that inhrerit from this one are upgradeable

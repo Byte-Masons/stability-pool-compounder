@@ -9,7 +9,7 @@ import {MathUpgradeable} from "oz-upgradeable/utils/math/MathUpgradeable.sol";
 contract VeloTwapMixin {
     uint256 constant VELO_OBSERVATION_PERIOD = 1800;
 
-    function getVeloPrice(address source, address target, uint32 period, uint256 baseAmount)
+    function getVeloPrice(address source, address tokenIn, uint32 period, uint256 amountIn)
         public
         view
         returns (uint256)
@@ -48,7 +48,7 @@ contract VeloTwapMixin {
         uint112 reserve0 = safe112((current.reserve0Cumulative - last.reserve0Cumulative) / time);
         uint112 reserve1 = safe112((current.reserve1Cumulative - last.reserve1Cumulative) / time);
 
-        return _veloGetAmountOut(baseAmount, target, reserve0, reserve1, pair.stable(), pair);
+        return _veloGetAmountOut(amountIn, tokenIn, reserve0, reserve1, pair.stable(), pair);
     }
 
     /**
@@ -163,7 +163,7 @@ contract VeloTwapMixin {
     }
 
     function safe112(uint256 n) private pure returns (uint112) {
-        if (n >= 2 ** 112) revert("lol");
+        if (n > type(uint112).max) revert("safe112");
         return uint112(n);
     }
 }

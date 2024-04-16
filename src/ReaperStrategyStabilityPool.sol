@@ -14,26 +14,27 @@ import {IUniswapV3Pool} from "./interfaces/IUniswapV3Pool.sol";
 import {IERC20MetadataUpgradeable} from "oz-upgradeable/token/ERC20/extensions/IERC20MetadataUpgradeable.sol";
 import {SafeERC20Upgradeable} from "oz-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 import {MathUpgradeable} from "oz-upgradeable/utils/math/MathUpgradeable.sol";
-import {OracleAggregator} from "./OracleAggregator.sol";
+import {OracleAggregator, OracleRoute, OracleKind, Oracle} from "./OracleAggregator.sol";
 
 /**
  * @dev Strategy to compound rewards and liquidation collateral gains in the Ethos stability pool
  */
-contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, OracleAggregator {
+contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     using ReaperMathUtils for uint256;
     using SafeERC20Upgradeable for IERC20MetadataUpgradeable;
 
     // constants
 
     uint256 constant MAXIMUM_ALLOWED_RELATIVE_CHANGE = 300; // 3%
-    uint256 public constant MAX_MAD_RELATIVE_TO_MEDIAN_BPS = 3000000;
-    uint256 public constant MAX_SCORE_BPS = 10000;
+    uint256 public constant SPREAD_TOLERANCE = 500; // 5%
+    uint256 public constant MAX_SCORE_BPS = 25_000; // / 2.5X MAD for price outlier detection
 
     // 3rd-party contract addresses
     IStabilityPool public stabilityPool;
     IPriceFeed public priceFeed;
     IERC20MetadataUpgradeable public usdc;
     ExchangeSettings public exchangeSettings; // Holds addresses to use Velo, UniV3 and Bal through Swapper
+    OracleAggregator public oracleAggregator;
 
     uint256 public constant ETHOS_DECIMALS = 18; // Decimals used by ETHOS
     uint256 public ernMinAmountOutBPS; // The max allowed slippage when trading in to ERN
@@ -51,10 +52,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, OracleAggregator {
         address balVault;
         address uniV3Router;
         address uniV2Router;
-    }
-
-    struct Pools {
-        address stabilityPool;
     }
 
     struct Tokens {
@@ -77,10 +74,10 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, OracleAggregator {
         address[] memory _multisigRoles,
         address[] memory _keepers,
         address _priceFeed,
-        address _uniV3TWAP,
+        address _oracleAggregator,
         OracleRoute[] calldata _ernForUsdcOracles,
         ExchangeSettings calldata _exchangeSettings,
-        Pools calldata _pools,
+        address _stabilityPool,
         Tokens calldata _tokens
     ) public initializer {
         require(_vault != address(0), "vault is 0 address");
@@ -90,25 +87,26 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, OracleAggregator {
         require(_tokens.want != address(0), "want is 0 address");
         require(_priceFeed != address(0), "priceFeed is 0 address");
         require(_tokens.usdc != address(0), "usdc is 0 address");
-        require(_uniV3TWAP != address(0), "uniV3TWAP is 0 address");
         require(_exchangeSettings.veloRouter != address(0), "veloRouter is 0 address");
         require(_exchangeSettings.balVault != address(0), "balVault is 0 address");
         require(_exchangeSettings.uniV3Router != address(0), "uniV3Router is 0 address");
         require(_exchangeSettings.uniV2Router != address(0), "uniV2Router is 0 address");
-        require(_pools.stabilityPool != address(0), "stabilityPool is 0 address");
+        require(_stabilityPool != address(0), "stabilityPool is 0 address");
+        require(_oracleAggregator != address(0), "oracleAggregator is 0 address");
 
         __ReaperBaseStrategy_init(_vault, _swapper, _tokens.want, _strategists, _multisigRoles, _keepers);
-        stabilityPool = IStabilityPool(_pools.stabilityPool);
+        stabilityPool = IStabilityPool(_stabilityPool);
         priceFeed = IPriceFeed(_priceFeed);
         usdc = IERC20MetadataUpgradeable(_tokens.usdc);
         exchangeSettings = _exchangeSettings;
+        oracleAggregator = OracleAggregator(_oracleAggregator);
 
         updateErnMinAmountOutBPS(9800);
         usdcToErnExchange = ExchangeType.UniV3;
 
         compoundingFeeMarginBPS = 9950;
         updateOracles(_ernForUsdcOracles);
-        updateAcceptableTWAPBounds(980_000, 1_100_000);
+        updateAcceptableTWAPBounds(0.98 ether, 1.1 ether);
     }
 
     /**
@@ -170,7 +168,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, OracleAggregator {
         if (shouldOverrideHarvestBlock) {
             return;
         }
-        uint128 usdcAmount = 1 ether; // 1 ERN
+        uint128 usdcAmount = 1e6; // 1 ERN
         uint256 ernAmount = _getErnAmountForUsdc(usdcAmount);
 
         if (ernAmount < acceptableTWAPLowerBound || ernAmount > acceptableTWAPUpperBound) {
@@ -316,8 +314,8 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, OracleAggregator {
      */
     function _getErnAmountForUsdc(uint256 _usdcAmount) internal returns (uint256 expectedErnAmount) {
         if (_usdcAmount != 0) {
-            uint256[] memory prices = getTwapPrices(ernForUsdcOracles, _usdcAmount);
-            return getMeanPrice(prices, MAX_MAD_RELATIVE_TO_MEDIAN_BPS, MAX_SCORE_BPS);
+            uint256[] memory prices = oracleAggregator.getTwapPrices(ernForUsdcOracles, _usdcAmount);
+            return oracleAggregator.getMeanPrice(prices, SPREAD_TOLERANCE, MAX_SCORE_BPS);
         }
     }
 
@@ -327,8 +325,8 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, OracleAggregator {
      */
     function _getErnAmountForUsdcView(uint256 _usdcAmount) internal view returns (uint256 expectedErnAmount) {
         if (_usdcAmount != 0) {
-            uint256[] memory prices = getTwapPricesView(ernForUsdcViewOracles, _usdcAmount);
-            return getMeanPrice(prices, MAX_MAD_RELATIVE_TO_MEDIAN_BPS, MAX_SCORE_BPS);
+            uint256[] memory prices = oracleAggregator.getTwapPricesView(ernForUsdcViewOracles, _usdcAmount);
+            return oracleAggregator.getMeanPrice(prices, SPREAD_TOLERANCE, MAX_SCORE_BPS);
         }
     }
 
@@ -464,10 +462,14 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, OracleAggregator {
      */
     function updateOracles(OracleRoute[] calldata newRoutes) public {
         _atLeastRole(DEFAULT_ADMIN_ROLE);
-        ernForUsdcOracles = newRoutes;
+        // ernForUsdcOracles = newRoutes;
+        delete ernForUsdcOracles;
+        for (uint256 i = 0; i < newRoutes.length; i++) {
+            ernForUsdcOracles.push(newRoutes[i]);
+        }
 
         // reset the view-only oracles)
-        ernForUsdcViewOracles = new OracleRoute[](0);
+        delete ernForUsdcViewOracles;
         // filter out the price feed oracles and set the view-only oracles
         for (uint256 i = 0; i < newRoutes.length; i++) {
             for (uint256 j = 0; j < newRoutes[i].oracles.length; j++) {
@@ -496,8 +498,8 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4, OracleAggregator {
      */
     function updateAcceptableTWAPBounds(uint256 _acceptableTWAPLowerBound, uint256 _acceptableTWAPUpperBound) public {
         _atLeastRole(DEFAULT_ADMIN_ROLE);
-        bool aboveMinLimit = _acceptableTWAPLowerBound >= 900_000;
-        bool belowMaxLimit = _acceptableTWAPUpperBound <= 1_100_000;
+        bool aboveMinLimit = _acceptableTWAPLowerBound >= 0.9 ether;
+        bool belowMaxLimit = _acceptableTWAPUpperBound <= 1.1 ether;
         bool lowerBoundBelowUpperBound = _acceptableTWAPLowerBound < _acceptableTWAPUpperBound;
         bool hasValidBounds = lowerBoundBelowUpperBound && aboveMinLimit && belowMaxLimit;
 

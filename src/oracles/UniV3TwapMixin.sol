@@ -7,7 +7,7 @@ import {FullMath} from "univ3-core/libraries/FullMath.sol";
 import {IUniswapV3Pool} from "univ3-core/interfaces/IUniswapV3Pool.sol";
 
 contract UniV3TwapMixin {
-    function getUniV3Price(address source, address targetToken, uint32 period, uint256 baseAmount)
+    function getUniV3Price(address source, address tokenIn, uint32 period, uint256 amountIn)
         public
         view
         returns (uint256 price)
@@ -25,19 +25,19 @@ contract UniV3TwapMixin {
         uint160 sqrtRatioX96 = TickMath.getSqrtRatioAtTick(tick);
 
         (address token0, address token1) = (IUniswapV3Pool(source).token0(), IUniswapV3Pool(source).token1());
-        address baseToken = token0 < token1 ? token0 : token1;
+        address tokenOut = token0 > token1 ? token0 : token1;
 
         // Calculate quoteAmount with better precision if it doesn't overflow when multiplied by itself
         if (sqrtRatioX96 <= type(uint128).max) {
             uint256 ratioX192 = uint256(sqrtRatioX96) * sqrtRatioX96;
-            price = baseToken < targetToken
-                ? FullMath.mulDiv(ratioX192, baseAmount, 1 << 192)
-                : FullMath.mulDiv(1 << 192, baseAmount, ratioX192);
+            price = tokenOut > tokenIn
+                ? FullMath.mulDiv(ratioX192, amountIn, 1 << 192)
+                : FullMath.mulDiv(1 << 192, amountIn, ratioX192);
         } else {
             uint256 ratioX128 = FullMath.mulDiv(sqrtRatioX96, sqrtRatioX96, 1 << 64);
-            price = baseToken < targetToken
-                ? FullMath.mulDiv(ratioX128, baseAmount, 1 << 128)
-                : FullMath.mulDiv(1 << 128, baseAmount, ratioX128);
+            price = tokenOut > tokenIn
+                ? FullMath.mulDiv(ratioX128, amountIn, 1 << 128)
+                : FullMath.mulDiv(1 << 128, amountIn, ratioX128);
         }
     }
 }

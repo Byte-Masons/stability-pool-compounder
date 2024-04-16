@@ -2,7 +2,9 @@
 src = "src"
 out = "out"
 libs = ["lib"]
-via-ir = true
+
+
+fs_permissions = [{ access = "read", path = "./test/"}]
 
 remappings = [
     "vault-v2/=lib/vault-v2/src/",
