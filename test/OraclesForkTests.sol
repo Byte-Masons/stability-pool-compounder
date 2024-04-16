@@ -22,6 +22,9 @@ contract OracleForkTests is Test {
     address OP_ADDRESS = 0x4200000000000000000000000000000000000042;
     address WETH_ADDRESS = 0x4200000000000000000000000000000000000006;
 
+    address PRICE_FEED = 0xC6b3Eea38Cbe0123202650fB49c59ec41a406427;
+    address WBTC_ADDRESS = 0x68f180fcCe6836688e9084f035309E29Bf0A2095;
+
     function setUp() public {
         opFork = vm.createSelectFork("https://go.getblock.io/bec4b0dd7017435c8880f2cae8ea2d4d", 118638228);
 
@@ -101,6 +104,16 @@ contract OracleForkTests is Test {
 
         route.oracles[0] = Oracle({source: VMEX_POOL, tokenIn: WETH_ADDRESS, period: 3600, kind: OracleKind.Balancer});
         emit log_named_decimal_uint("price", oracleAggregator.getMultiHopPriceView(route, 1e18), 18);
+    }
+
+    function test_priceFeed() public {
+        OracleRoute memory route;
+
+        route.oracles = new Oracle[](1);
+        route.oracles[0] = Oracle({source: PRICE_FEED, tokenIn: WBTC_ADDRESS, period: 0, kind: OracleKind.PriceFeed});
+
+        uint256 price = oracleAggregator.getMultiHopPrice(route, 1e8);
+        console.log("price", price);
     }
 
     function test_twoPrices() public {

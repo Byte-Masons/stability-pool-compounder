@@ -661,6 +661,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         vaultWantBalance = want.balanceOf(address(vault));
         strategyBalance = wrappedProxy.balanceOf();
         assertGt(vaultBalance, depositAmount);
+        console.log(vaultBalance, depositAmount);
         assertGt(vaultWantBalance, 30 ether);
         assertEq(strategyBalance, 70 ether);
 

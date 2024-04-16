@@ -25,7 +25,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
 
     // constants
 
-    uint256 constant MAXIMUM_ALLOWED_RELATIVE_CHANGE = 300; // 3%
     uint256 public constant SPREAD_TOLERANCE = 500; // 5%
     uint256 public constant MAX_SCORE_BPS = 25_000; // / 2.5X MAD for price outlier detection
 

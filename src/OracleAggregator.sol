@@ -6,6 +6,7 @@ import {VeloTwapMixin} from "./oracles/VeloTwapMixin.sol";
 import {UniV3TwapMixin} from "./oracles/UniV3TwapMixin.sol";
 import {BalancerTwapMixin} from "./oracles/BalancerTwapMixin.sol";
 import {IPriceFeed} from "./interfaces/IPriceFeed.sol";
+import {ERC20} from "oz/token/ERC20/ERC20.sol"; // has decimals(), as opposed to IERC20
 
 import {MathUpgradeable} from "oz-upgradeable/utils/math/MathUpgradeable.sol";
 
@@ -82,7 +83,6 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin {
             } else {
                 price = _getPrice(route.oracles[i], amountIn);
             }
-            price = _getPrice(route.oracles[i], amountIn);
             amountIn = price;
         }
     }
@@ -220,8 +220,9 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin {
         if (nrValidPrices > 0) mean = sum / nrValidPrices;
     }
 
+    // always returns usd value
     function getPriceFeedPrice(address source, address target, uint256 amountIn) public returns (uint256 price) {
-        return IPriceFeed(source).fetchPrice(target) * amountIn;
+        return IPriceFeed(source).fetchPrice(target) * amountIn / (10 ** ERC20(target).decimals());
     }
 
     // in the case contracts that inhrerit from this one are upgradeable
