@@ -117,7 +117,7 @@ contract OracleForkTests is Test {
     }
 
     function test_twoPrices() public {
-        OracleRoute[] memory _ernForUsdcAllOracles = new OracleRoute[](2);
+        OracleRoute[] memory _ernForUsdcAllOracles = new OracleRoute[](3);
 
         OracleRoute memory _veloOracle;
         _veloOracle.oracles = new Oracle[](1);
@@ -129,8 +129,14 @@ contract OracleForkTests is Test {
         _uniV3Oracle.oracles[0] =
             Oracle({source: USDC_ERN_UNIV3_POOL, tokenIn: USDC_ADDRESS, period: 3600, kind: OracleKind.UniV3});
 
+        OracleRoute memory _priceFeedOracle;
+        _priceFeedOracle.oracles = new Oracle[](1);
+        _priceFeedOracle.oracles[0] =
+            Oracle({source: PRICE_FEED, tokenIn: WBTC_ADDRESS, period: 0, kind: OracleKind.PriceFeed});
+
         _ernForUsdcAllOracles[0] = _veloOracle;
         _ernForUsdcAllOracles[1] = _uniV3Oracle;
+        _ernForUsdcAllOracles[2] = _priceFeedOracle;
 
         uint256[] memory prices = oracleAggregator.getTwapPrices(_ernForUsdcAllOracles, 10_000 * 1e6);
 

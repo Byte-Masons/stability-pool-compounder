@@ -13,7 +13,7 @@ contract BalancerTwapMixin {
     function getBalancerPrice(address source, address tokenIn, uint32 period, uint256 amountIn)
         public
         view
-        returns (uint256)
+        returns (uint256 price)
     {
         IBalancerTwapOracle balancerTwapOracle = IBalancerTwapOracle(source);
         // "PAIR_PRICE: the price of the tokens in the Pool,
@@ -56,16 +56,16 @@ contract BalancerTwapMixin {
         if (decimals0 >= decimals1) {
             uint256 decimalDifference = decimals0 - decimals1;
             if (tokenInToken0) {
-                return targetPrice / 10 ** decimalDifference;
+                price = targetPrice / 10 ** decimalDifference;
             } else {
-                return targetPrice * 10 ** decimalDifference;
+                price = targetPrice * 10 ** decimalDifference;
             }
         } else if (decimals0 < decimals1) {
             uint256 decimalDifference = decimals1 - decimals0;
             if (tokenInToken0) {
-                return targetPrice * 10 ** decimalDifference;
+                price = targetPrice * 10 ** decimalDifference;
             } else {
-                return targetPrice / 10 ** decimalDifference;
+                price = targetPrice / 10 ** decimalDifference;
             }
         }
     }

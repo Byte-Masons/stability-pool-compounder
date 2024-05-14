@@ -12,7 +12,7 @@ contract VeloTwapMixin {
     function getVeloPrice(address source, address tokenIn, uint32 period, uint256 amountIn)
         public
         view
-        returns (uint256)
+        returns (uint256 price)
     {
         IVeloPair pair = IVeloPair(source);
         Cumulatives memory current = pair.currentCumulativePrices();
@@ -48,7 +48,7 @@ contract VeloTwapMixin {
         uint112 reserve0 = safe112((current.reserve0Cumulative - last.reserve0Cumulative) / time);
         uint112 reserve1 = safe112((current.reserve1Cumulative - last.reserve1Cumulative) / time);
 
-        return _veloGetAmountOut(amountIn, tokenIn, reserve0, reserve1, pair.stable(), pair);
+        price = _veloGetAmountOut(amountIn, tokenIn, reserve0, reserve1, pair.stable(), pair);
     }
 
     /**

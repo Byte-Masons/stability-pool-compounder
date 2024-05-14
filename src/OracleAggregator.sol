@@ -32,7 +32,6 @@ struct Oracle {
 // making averages between the results, for more reliable prices.
 // Has support for multiple oracles
 contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin {
-    error Oracle_VeloOverflow();
     error Oracle_InvalidKind();
     error Oracle_PricesSpreadTooHigh();
     error Oracle_PricesUnreliable();
@@ -117,7 +116,7 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin {
     function getMeanPrice(uint256[] memory prices, uint256 spreadTolerance, uint256 maxScoreBPS)
         external
         pure
-        returns (uint256)
+        returns (uint256 mean)
     {
         if (prices.length == 1) return prices[0];
         if (prices.length == 2) {
@@ -131,7 +130,8 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin {
             return (prices[0] + prices[1]) / 2;
         }
         (bool[] memory isInvalid, uint256 mad, uint256 median) = getValidityByZScore(prices, maxScoreBPS);
-        (uint256 mean, uint256 nrOfValidPrices) = getMean(prices, isInvalid);
+        uint256 nrOfValidPrices;
+        (mean, nrOfValidPrices) = getMean(prices, isInvalid);
         if (mad > (median * spreadTolerance) / BPS) revert Oracle_PricesSpreadTooHigh();
         if (nrOfValidPrices < ((prices.length * 3) / 5)) revert Oracle_PricesUnreliable();
         return mean;
@@ -139,27 +139,24 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin {
 
     /// @param prices List of prices to be checked
     /// @param maxScoreBPS If a price has a Z-score higher than this, it's considered an outlier and filtered out
-    /// @return An array mask for the prices array, where true means the price is invalid
-    /// @return The MAD - Median Absolute Deviation
-    /// @return The median of the prices
+    /// @return isInvalid An array mask for the prices array, where true means the price is invalid
+    /// @return mad The MAD - Median Absolute Deviation
+    /// @return median The median of the prices
     function getValidityByZScore(uint256[] memory prices, uint256 maxScoreBPS)
         public
         pure
-        returns (bool[] memory, uint256, uint256)
+        returns (bool[] memory isInvalid, uint256 mad, uint256 median)
     {
-        (uint256 mad, uint256 median) = getMAD(prices);
-        bool[] memory isInvalid = new bool[](prices.length);
+        (mad, median) = getMAD(prices);
+        isInvalid = new bool[](prices.length);
         for (uint256 i = 0; i < prices.length; i++) {
-            if (mad == 0) {
-                isInvalid[i] = prices[i] != median;
-                continue;
-            }
             int256 score = (int256(prices[i]) - int256(median)) * int256(BPS) / int256(mad);
             isInvalid[i] = score < -int256(maxScoreBPS) || score > int256(maxScoreBPS);
         }
         return (isInvalid, mad, median);
     }
 
+    // https://ethereum.stackexchange.com/questions/1517/sorting-an-array-of-integer-with-ethereum
     function quickSort(uint256[] memory arr, int256 left, int256 right) internal pure {
         int256 i = left;
         int256 j = right;
@@ -224,7 +221,4 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin {
     function getPriceFeedPrice(address source, address target, uint256 amountIn) public returns (uint256 price) {
         return IPriceFeed(source).fetchPrice(target) * amountIn / (10 ** ERC20(target).decimals());
     }
-
-    // in the case contracts that inhrerit from this one are upgradeable
-    uint256[50] private __gap;
 }
