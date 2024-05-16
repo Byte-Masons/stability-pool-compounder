@@ -133,7 +133,8 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin {
         uint256 nrOfValidPrices;
         (mean, nrOfValidPrices) = getMean(prices, isInvalid);
         if (mad > (median * spreadTolerance) / BPS) revert Oracle_PricesSpreadTooHigh();
-        if (nrOfValidPrices < ((prices.length * 3) / 5)) revert Oracle_PricesUnreliable();
+        // if more than 1/3 of the prices are invalid, the whole list is considered unreliable
+        if ((prices.length - nrOfValidPrices) > ((prices.length) / 3)) revert Oracle_PricesUnreliable();
         return mean;
     }
 
