@@ -7,7 +7,7 @@ import {FullMath} from "univ3-core/libraries/FullMath.sol";
 import {IUniswapV3Pool} from "univ3-core/interfaces/IUniswapV3Pool.sol";
 
 contract UniV3TwapMixin {
-    function getUniV3Price(address source, address tokenIn, uint32 period, uint256 amountIn)
+    function getUniV3Price(address source, address tokenIn, uint32 period, uint32 ago, uint256 amountIn)
         public
         view
         returns (uint256 price)
@@ -15,8 +15,8 @@ contract UniV3TwapMixin {
         require(period != 0, "BP");
 
         uint32[] memory secondsAgos = new uint32[](2);
-        secondsAgos[0] = period;
-        secondsAgos[1] = 0;
+        secondsAgos[0] = period + ago;
+        secondsAgos[1] = ago;
 
         (int56[] memory tickCumulatives,) = IUniswapV3Pool(source).observe(secondsAgos);
 

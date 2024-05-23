@@ -9,53 +9,104 @@ import {MathUpgradeable} from "oz-upgradeable/utils/math/MathUpgradeable.sol";
 contract VeloTwapMixin {
     uint256 constant VELO_OBSERVATION_PERIOD = 1800;
 
-    function getVeloPrice(address source, address tokenIn, uint32 period, uint256 amountIn)
+    function getVeloPrice(address source, address tokenIn, uint32 period, uint32 ago, uint256 amountIn)
         public
         view
         returns (uint256 price)
     {
         IVeloPair pair = IVeloPair(source);
-        Cumulatives memory current = pair.currentCumulativePrices();
-        Cumulatives memory last;
+        Cumulatives memory end;
+        Cumulatives memory start;
         uint256 observationLength = pair.observationLength();
 
-        uint256 time;
+        if (ago == 0) {
+            end = pair.currentCumulativePrices();
+            
+            (Cumulatives memory _before, Cumulatives memory _after) = _getObservations(pair, block.timestamp - period, observationLength);
+            
+            start = _averageObservations(_before, _after, end.blockTimestamp - period);
+        } else {
+            end.blockTimestamp = block.timestamp - ago;
+            (Cumulatives memory _before, Cumulatives memory _after) = _getObservations(pair, end.blockTimestamp, observationLength);
+            // get mean of the two observations weighted by the target
+            end = _averageObservations(_before, _after, end.blockTimestamp);
 
-        // avoid stack too deep
-        {
-            uint256 maxTimestampRequired = current.blockTimestamp - period;
-            // the minimum amount of observations the pair must have registered in the period of the query.
-            // the actual amount of observations since (block.timestamp - period) is likely to be smaller
-            uint256 minObservationsPassed = MathUpgradeable.ceilDiv(period, VELO_OBSERVATION_PERIOD);
-            // this observation is guaranteed to be from before the period (left side of the binary search)
-            uint256 L = observationLength - minObservationsPassed - 1;
-            uint256 R = observationLength - 1; // right side of the binary search
-            // binary search for the observation that's closest to the most recent one, yet still within the period
-            while (L < R) {
-                uint256 observationIndex = (L + R) / 2;
-
-                (last.blockTimestamp, last.reserve0Cumulative, last.reserve1Cumulative) =
-                    pair.observations(observationIndex);
-                if (last.blockTimestamp > maxTimestampRequired) {
-                    R = observationIndex - 1;
-                } else {
-                    L = observationIndex + 1;
-                }
+            start.blockTimestamp = end.blockTimestamp - period;
+            if (start.blockTimestamp >= _before.blockTimestamp) {
+                // this means that the start timestamp is within the same observation period above,
+                // so we can just use the same observations
+                start = _averageObservations(_before, _after, start.blockTimestamp);
+            } else {
+                (_before, _after) = _getObservations(pair, start.blockTimestamp, observationLength);
+                start = _averageObservations(_before, _after, start.blockTimestamp);
             }
-            time = current.blockTimestamp - last.blockTimestamp;
         }
 
-        uint112 reserve0 = safe112((current.reserve0Cumulative - last.reserve0Cumulative) / time);
-        uint112 reserve1 = safe112((current.reserve1Cumulative - last.reserve1Cumulative) / time);
+        uint256 timeElapsed = end.blockTimestamp - start.blockTimestamp;
+        uint256 reserve0 = (end.reserve0Cumulative - start.reserve0Cumulative) / timeElapsed;
+        uint256 reserve1 = (end.reserve1Cumulative - start.reserve1Cumulative) / timeElapsed;
 
         price = _veloGetAmountOut(amountIn, tokenIn, reserve0, reserve1, pair.stable(), pair);
+    }
+
+    // gets the observations immediately before and after the target timestamp using binary search
+    function _getObservations(IVeloPair pair, uint256 targetTimestamp, uint256 observationLength)
+        public
+        view
+        returns (Cumulatives memory _before, Cumulatives memory _after)
+    {
+        uint256 minObservationsPassed = MathUpgradeable.ceilDiv(block.timestamp - targetTimestamp, VELO_OBSERVATION_PERIOD);
+        // this observation is guaranteed to be from before the period (left side of the binary search)
+        uint256 L = observationLength - minObservationsPassed - 1;
+        uint256 R = observationLength - 1; // right side of the binary search
+
+        // Binary search to find the closest observation before targetTimestamp
+        while (L < R) {
+            uint256 observationIndex = (L + R + 1) / 2; // round up
+            (uint256 blockTimestamp, uint256 reserve0Cumulative, uint256 reserve1Cumulative) = pair.observations(observationIndex);
+            if (blockTimestamp > targetTimestamp) {
+                R = observationIndex - 1;
+            } else {
+                L = observationIndex;
+                _before.blockTimestamp = blockTimestamp;
+                _before.reserve0Cumulative = reserve0Cumulative;
+                _before.reserve1Cumulative = reserve1Cumulative;
+            }
+        }
+        if (_before.blockTimestamp == 0) {
+            // ensure that the observation is assigned
+            (_before.blockTimestamp, _before.reserve0Cumulative, _before.reserve1Cumulative) = pair.observations(L);
+        }
+        if (L == observationLength - 1) {
+            _after = pair.currentCumulativePrices();
+        } else {
+            (_after.blockTimestamp, _after.reserve0Cumulative, _after.reserve1Cumulative) = pair.observations(L + 1);
+        }
+    }
+
+    // This function is used to calculate the average of two observations, after and before the target timestamp,
+    // weighted by the target timestamp.
+    function _averageObservations(Cumulatives memory _before, Cumulatives memory _after, uint256 targetTimestamp)
+        private
+        view
+        returns (Cumulatives memory)
+    {
+        uint256 weight1 = targetTimestamp - _before.blockTimestamp;
+        uint256 weight2 = _after.blockTimestamp - targetTimestamp;
+        uint256 weightSum = weight1 + weight2;
+        return
+            Cumulatives({
+                reserve0Cumulative: (_before.reserve0Cumulative * weight2 + _after.reserve0Cumulative * weight1) / weightSum,
+                reserve1Cumulative: (_before.reserve1Cumulative * weight2 + _after.reserve1Cumulative * weight1) / weightSum,
+                blockTimestamp: targetTimestamp
+            });
     }
 
     /**
      * Utils
      * Below are the functions that are used to calculate the price of a token in a Velo pool.
      * This code is adapted from Velodrome's contracts directly, with changes to use parameters
-     * instead of state variables.
+     * instead of state variables, and additional comments for clarification.
      */
     struct GetAmountOutLocalVars {
         uint256 decimals0;
@@ -63,6 +114,7 @@ contract VeloTwapMixin {
         uint256 xy;
     }
 
+    // This function calculates the amount of tokenOut that will be received for a given amount of tokenIn
     function _veloGetAmountOut(
         uint256 amountIn,
         address tokenIn,
@@ -90,6 +142,7 @@ contract VeloTwapMixin {
         }
     }
 
+    // This function calculates the product of the reserves of a Velo pool
     function _k(uint256 x, uint256 y, uint256 decimals0, uint256 decimals1, bool stable)
         private
         pure
@@ -106,6 +159,10 @@ contract VeloTwapMixin {
         }
     }
 
+    // The following functions are used to calculate the price of a token in a stable Velo pool
+
+    // _f calculates an estimate of the product of x3y+y3x
+    // for the first estimate, it's given reserveIn + amountIn and reserveOut
     function _f(uint256 x0, uint256 y) private pure returns (uint256) {
         uint256 _a = (x0 * y) / 1e18;
         uint256 _b = ((x0 * x0) / 1e18 + (y * y) / 1e18);
@@ -116,6 +173,8 @@ contract VeloTwapMixin {
         return (3 * x0 * ((y * y) / 1e18)) / 1e18 + ((((x0 * x0) / 1e18) * x0) / 1e18);
     }
 
+    // _get_y calculates the reserveOut for a given trade
+    // it uses an optimized binary search to find the correct value
     function _get_y(uint256 x0, uint256 xy, uint256 y, uint256 decimals0, uint256 decimals1, bool stable)
         private
         pure
@@ -161,9 +220,5 @@ contract VeloTwapMixin {
         }
         revert("!y");
     }
-
-    function safe112(uint256 n) private pure returns (uint112) {
-        if (n > type(uint112).max) revert("safe112");
-        return uint112(n);
-    }
+    
 }

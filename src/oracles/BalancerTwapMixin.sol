@@ -10,7 +10,7 @@ import {ERC20} from "oz/token/ERC20/ERC20.sol"; // for decimals()
 contract BalancerTwapMixin {
     error BalancerOracle__TWAPOracleNotReady();
 
-    function getBalancerPrice(address source, address tokenIn, uint32 period, uint256 amountIn)
+    function getBalancerPrice(address source, address tokenIn, uint32 period, uint32 ago, uint256 amountIn)
         public
         view
         returns (uint256 price)
@@ -33,7 +33,7 @@ contract BalancerTwapMixin {
             queries[0] = IBalancerTwapOracle.OracleAverageQuery({
                 variable: IBalancerTwapOracle.Variable.PAIR_PRICE,
                 secs: period,
-                ago: 0
+                ago: ago
             });
             oraclePrice = balancerTwapOracle.getTimeWeightedAverage(queries)[0];
         }
@@ -60,7 +60,7 @@ contract BalancerTwapMixin {
             } else {
                 price = targetPrice * 10 ** decimalDifference;
             }
-        } else if (decimals0 < decimals1) {
+        } else {
             uint256 decimalDifference = decimals1 - decimals0;
             if (tokenInToken0) {
                 price = targetPrice * 10 ** decimalDifference;

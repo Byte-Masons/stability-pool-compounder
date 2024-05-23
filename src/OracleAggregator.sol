@@ -5,16 +5,15 @@ pragma solidity ^0.8.0;
 import {VeloTwapMixin} from "./oracles/VeloTwapMixin.sol";
 import {UniV3TwapMixin} from "./oracles/UniV3TwapMixin.sol";
 import {BalancerTwapMixin} from "./oracles/BalancerTwapMixin.sol";
-import {IPriceFeed} from "./interfaces/IPriceFeed.sol";
+import {AggregatorV3Interface} from "./interfaces/AggregatorV3Interface.sol";
 import {ERC20} from "oz/token/ERC20/ERC20.sol"; // has decimals(), as opposed to IERC20
-
 import {MathUpgradeable} from "oz-upgradeable/utils/math/MathUpgradeable.sol";
 
 enum OracleKind {
     Velo,
     UniV3,
     Balancer,
-    PriceFeed
+    Chainlink
 }
 
 struct OracleRoute {
@@ -24,7 +23,7 @@ struct OracleRoute {
 struct Oracle {
     address source;
     address tokenIn;
-    uint256 period;
+    uint256 windowOrDecimalOffset;
     OracleKind kind;
 }
 
@@ -38,98 +37,109 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin {
 
     uint256 constant BPS = 10_000;
 
-    function getTwapPricesView(OracleRoute[] memory oracles, uint256 amountIn)
+    // @notice Fetches the mean price of a list of oracles, filtering out outliers
+    // and checking if the prices are reliable.
+    function getReliablePrice(OracleRoute[] memory oracles, uint256 amountIn, uint256 spreadTolerance, uint256 maxScoreBPS)
+        external
+        view
+        returns (uint256 price)
+    {
+        uint256[] memory prices = new uint256[](oracles.length);
+        for (uint256 i = 0; i < oracles.length; i++) {
+            prices[i] = _fetchMultiHopPrice(oracles[i], amountIn, false);
+        }
+        if (prices.length == 1) {
+            return prices[0];
+        }
+        if (prices.length == 2) {
+            uint256[] memory delayedPrices = new uint256[](2);
+            for (uint256 i = 0; i < oracles.length; i++) {
+                delayedPrices[i] = _fetchMultiHopPrice(oracles[i], amountIn, true);
+            }
+            (uint256 delayedMean, ) = getMean(delayedPrices, new bool[](2));
+            uint256[] memory combinedPrices = new uint256[](3);
+            combinedPrices[0] = prices[0];
+            combinedPrices[2] = delayedMean;
+            combinedPrices[1] = prices[1];
+            return _getValidatedMeanPrice(combinedPrices, spreadTolerance, maxScoreBPS);
+        }
+        return _getValidatedMeanPrice(prices, spreadTolerance, maxScoreBPS);
+    }
+
+    // @notice Fetches the prices without performing any validation
+    function fetchTwapPrices(OracleRoute[] memory oracles, uint256 amountIn)
         external
         view
         returns (uint256[] memory prices)
     {
         prices = new uint256[](oracles.length);
         for (uint256 i = 0; i < oracles.length; i++) {
-            prices[i] = getMultiHopPriceView(oracles[i], amountIn);
+            prices[i] = _fetchMultiHopPrice(oracles[i], amountIn, false);
         }
     }
 
     /// @param route List of oracles for multihop price
     /// @param amountIn Input amount of the base token
-    function getMultiHopPriceView(OracleRoute memory route, uint256 amountIn) public view returns (uint256 price) {
+    function fetchMultiHopPrice(OracleRoute memory route, uint256 amountIn) external view returns (uint256 price) {
         for (uint256 i = 0; i < route.oracles.length; i++) {
-            price = _getPrice(route.oracles[i], amountIn);
+            price = _fetchPrice(route.oracles[i], amountIn, false);
             amountIn = price;
         }
     }
 
-    /**
-     * state-changing versions of the above functions
-     * This allows the Kind of oracle to be PriceFeed
-     */
-    function getTwapPrices(OracleRoute[] memory oracles, uint256 amountIn) external returns (uint256[] memory prices) {
-        prices = new uint256[](oracles.length);
-        for (uint256 i = 0; i < oracles.length; i++) {
-            prices[i] = _getMultiHopPrice(oracles[i], amountIn);
-        }
-    }
-
-    function getMultiHopPrice(OracleRoute memory route, uint256 amountIn) external returns (uint256 price) {
-        return _getMultiHopPrice(route, amountIn);
+    function fetchPrice(Oracle memory oracle, uint256 amountIn) external view returns (uint256 price) {
+        return _fetchPrice(oracle, amountIn, false);
     }
 
     /// @param route List of oracles for multihop price
     /// @param amountIn Input amount of the base token
-    function _getMultiHopPrice(OracleRoute memory route, uint256 amountIn) internal returns (uint256 price) {
+    function _fetchMultiHopPrice(OracleRoute memory route, uint256 amountIn, bool delayWindow) internal view returns (uint256 price) {
         for (uint256 i = 0; i < route.oracles.length; i++) {
-            if (route.oracles[i].kind == OracleKind.PriceFeed) {
-                price = getPriceFeedPrice(route.oracles[i].source, route.oracles[i].tokenIn, amountIn);
-            } else {
-                price = _getPrice(route.oracles[i], amountIn);
-            }
+            price = _fetchPrice(route.oracles[i], amountIn, delayWindow);
             amountIn = price;
         }
-    }
-
-    function getPrice(Oracle memory oracle, uint256 amountIn) external view returns (uint256 price) {
-        return _getPrice(oracle, amountIn);
     }
 
     /// @param oracle Kind of oracle to use -- see OracleKind
     /// @param amountIn Input amount of the base token
-    function _getPrice(Oracle memory oracle, uint256 amountIn) internal view returns (uint256 price) {
+    /// @param delayWindow If true, the price is calculated with a delayed window - used for 2 price comparisons - incompatible with Chainlink
+    function _fetchPrice(Oracle memory oracle, uint256 amountIn, bool delayWindow) internal view returns (uint256 price) {
+        uint32 period;
+        uint32 ago;
+        if (delayWindow) {
+            period = uint32(oracle.windowOrDecimalOffset * 2);
+            ago = uint32(oracle.windowOrDecimalOffset);
+        } else {
+            period = uint32(oracle.windowOrDecimalOffset);
+            ago = 0;
+        }
+        
         if (oracle.kind == OracleKind.Velo) {
-            return getVeloPrice(oracle.source, oracle.tokenIn, uint32(oracle.period), amountIn);
+            return getVeloPrice(oracle.source, oracle.tokenIn, period, ago, amountIn);
         } else if (oracle.kind == OracleKind.UniV3) {
-            return getUniV3Price(oracle.source, oracle.tokenIn, uint32(oracle.period), amountIn);
+            return getUniV3Price(oracle.source, oracle.tokenIn, period, ago, amountIn);
         } else if (oracle.kind == OracleKind.Balancer) {
-            return getBalancerPrice(oracle.source, oracle.tokenIn, uint32(oracle.period), amountIn);
+            return getBalancerPrice(oracle.source, oracle.tokenIn, period, ago, amountIn);
+        } else if (oracle.kind == OracleKind.Chainlink) {
+            return getChainlinkPrice(oracle.source, oracle.windowOrDecimalOffset, oracle.tokenIn, amountIn);
         } else {
             revert Oracle_InvalidKind();
         }
     }
 
-    /// @notice Get the mean price of a list of prices, filtering out outliers
+    /// @notice Get the mean price of a list of prices, filtering out outliers from 3+ price lists.
     /// @param prices List of prices
-    /// @param spreadTolerance Is used in two ways:
-    /// 2 prices: The value will be multiplied by 2, and will be how many
-    /// BPS the difference between the two prices can be.
-    /// 3+ prices: How many BPS the MAD can be relative to the median.
+    /// @param spreadTolerance The spread tolerance in BPS
+    /// How many BPS the MAD can be relative to the median.
     /// For example, a MAD higher than 10% of the median means the prices are too spread out,
     /// and the whole list is considered unreliable.
     /// @param maxScoreBPS If a price has a Z-score higher than this, it's considered an outlier and filtered out
-    function getMeanPrice(uint256[] memory prices, uint256 spreadTolerance, uint256 maxScoreBPS)
-        external
+    function _getValidatedMeanPrice(uint256[] memory prices, uint256 spreadTolerance, uint256 maxScoreBPS)
+        public
         pure
         returns (uint256 mean)
     {
-        if (prices.length == 1) return prices[0];
-        if (prices.length == 2) {
-            if (prices[0] == 0 || prices[1] == 0) revert Oracle_PricesUnreliable();
-            spreadTolerance = spreadTolerance * 2;
-            if (prices[0] > prices[1]) {
-                if (prices[0] > (prices[1] * (BPS + spreadTolerance)) / BPS) revert Oracle_PricesSpreadTooHigh();
-            } else {
-                if (prices[1] > (prices[0] * (BPS + spreadTolerance)) / BPS) revert Oracle_PricesSpreadTooHigh();
-            }
-            return (prices[0] + prices[1]) / 2;
-        }
-        (bool[] memory isInvalid, uint256 mad, uint256 median) = getValidityByZScore(prices, maxScoreBPS);
+        (bool[] memory isInvalid, uint256 mad, uint256 median) = _getValidityByZScore(prices, maxScoreBPS);
         uint256 nrOfValidPrices;
         (mean, nrOfValidPrices) = getMean(prices, isInvalid);
         if (mad > (median * spreadTolerance) / BPS) revert Oracle_PricesSpreadTooHigh();
@@ -143,8 +153,8 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin {
     /// @return isInvalid An array mask for the prices array, where true means the price is invalid
     /// @return mad The MAD - Median Absolute Deviation
     /// @return median The median of the prices
-    function getValidityByZScore(uint256[] memory prices, uint256 maxScoreBPS)
-        public
+    function _getValidityByZScore(uint256[] memory prices, uint256 maxScoreBPS)
+        internal
         pure
         returns (bool[] memory isInvalid, uint256 mad, uint256 median)
     {
@@ -182,7 +192,7 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin {
 
     /// @notice Get the Median Absolute Deviation of a list of values
     /// @param arr List of values
-    function getMAD(uint256[] memory arr) public pure returns (uint256 mad, uint256 median) {
+    function getMAD(uint256[] memory arr) internal pure returns (uint256 mad, uint256 median) {
         uint256 n = arr.length;
         quickSort(arr, 0, int256(n - 1));
         if (n % 2 == 0) {
@@ -218,8 +228,21 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin {
         if (nrValidPrices > 0) mean = sum / nrValidPrices;
     }
 
-    // always returns usd value
-    function getPriceFeedPrice(address source, address target, uint256 amountIn) public returns (uint256 price) {
-        return IPriceFeed(source).fetchPrice(target) * amountIn / (10 ** ERC20(target).decimals());
+
+    // @notice Fetches the price from a Chainlink oracle
+    // @param source Chainlink oracle address
+    // @param tokenIn address(0) for price, address(1) for inverted price
+    // @param decimalOffset Difference between tokenIn and tokenOut decimals
+    // @param amountIn Input amount of the base token
+    function getChainlinkPrice(address source, uint256 decimalOffset, address tokenIn, uint256 amountIn) internal view returns (uint256 price) {
+        AggregatorV3Interface chainlinkOracle = AggregatorV3Interface(source);
+        (, int256 answer, , , ) = chainlinkOracle.latestRoundData();
+        uint8 chainlinkDecimals = chainlinkOracle.decimals();
+        if (tokenIn == address(0)) {
+            price = amountIn * uint256(answer) / (10**uint256(chainlinkDecimals)) / (10**decimalOffset);
+        } else {
+            price = amountIn * (10**uint256(chainlinkDecimals)) / uint256(answer) * (10**decimalOffset);
+        }
     }
+
 }

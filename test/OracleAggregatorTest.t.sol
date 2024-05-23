@@ -25,20 +25,6 @@ contract OracleTest is Test {
 
     /// Math related functions
 
-    function test_revertHighSpread2Values(uint256 price1, uint256 price2) public {
-        // avoid prices above 2**128
-        price1 = bound(price1, 1, type(uint128).max); // if a price is 0, the spread will be infinite
-        // make sure the prices are sufficiently apart
-        uint256 minPrice2 = Math.max(1, Math.ceilDiv(price1 * 111, 100));
-        vm.assume(minPrice2 < type(uint128).max);
-        price2 = bound(price2, minPrice2, type(uint128).max);
-
-        uint256[] memory prices = new uint256[](2);
-        prices[0] = price1;
-        prices[1] = price2;
-        vm.expectRevert(OracleAggregator.Oracle_PricesSpreadTooHigh.selector);
-        oracleAggregator.getMeanPrice(prices, maxMadRelativeToMedianBPS, maxScoreBPS);
-    }
 
     function test_revertHighSpread3Values(uint256 price1, uint256 price2, uint256 price3) public {
         // avoid prices above 2**128
@@ -56,7 +42,7 @@ contract OracleTest is Test {
         prices[1] = price2;
         prices[2] = price3;
         vm.expectRevert(OracleAggregator.Oracle_PricesSpreadTooHigh.selector);
-        oracleAggregator.getMeanPrice(prices, maxMadRelativeToMedianBPS, maxScoreBPS);
+        oracleAggregator._getValidatedMeanPrice(prices, maxMadRelativeToMedianBPS, maxScoreBPS);
     }
 
     function test_ignoreOutliers(uint256 price1, uint256 price2, uint256 outlier) public {
@@ -70,7 +56,7 @@ contract OracleTest is Test {
         prices[0] = price1;
         prices[1] = price2;
         prices[2] = outlier;
-        uint256 result = oracleAggregator.getMeanPrice(prices, maxMadRelativeToMedianBPS, maxScoreBPS);
+        uint256 result = oracleAggregator._getValidatedMeanPrice(prices, maxMadRelativeToMedianBPS, maxScoreBPS);
 
         assertEq(result, mean, "Outlier should be ignored");
     }
@@ -85,7 +71,7 @@ contract OracleTest is Test {
             if (testCase.shouldRevert) {
                 vm.expectRevert();
             }
-            result = oracleAggregator.getMeanPrice(testCase.prices, maxMadRelativeToMedianBPS, maxScoreBPS);
+            result = oracleAggregator._getValidatedMeanPrice(testCase.prices, maxMadRelativeToMedianBPS, maxScoreBPS);
 
             assertEq(result, testCase.expected, "Unexpected result");
         }

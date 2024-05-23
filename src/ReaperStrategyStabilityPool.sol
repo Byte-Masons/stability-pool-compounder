@@ -163,7 +163,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         }
     }
 
-    function _revertOnTWAPOutsideRange() internal {
+    function _revertOnTWAPOutsideRange() internal view {
         if (shouldOverrideHarvestBlock) {
             return;
         }
@@ -238,12 +238,12 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
 
     /**
      * @dev Calculates the estimated ERN value of collateral and USDC using Chainlink oracles
-     * and the set TWAP oracles - uses only view functions.
+     * and the set TWAP oracles.
      */
     function getERNValueOfCollateralGain() public view returns (uint256 ernValueOfCollateral) {
         uint256 usdValueOfCollateralGain = getUSDValueOfCollateralGain();
         uint256 totalUsdcValue = getERNValueOfCollateralGainCommon(usdValueOfCollateralGain);
-        ernValueOfCollateral = _getErnAmountForUsdcView(totalUsdcValue);
+        ernValueOfCollateral = _getErnAmountForUsdc(totalUsdcValue);
     }
 
     /**
@@ -311,29 +311,10 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
      * @dev Returns the {expectedErnAmount} for the specified {_usdcAmount} of USDC using
      * TWAPs.
      */
-    function _getErnAmountForUsdc(uint256 _usdcAmount) internal returns (uint256 expectedErnAmount) {
+    function _getErnAmountForUsdc(uint256 _usdcAmount) internal view returns (uint256 expectedErnAmount) {
         if (_usdcAmount != 0) {
-            uint256[] memory prices = oracleAggregator.getTwapPrices(ernForUsdcOracles, _usdcAmount);
-            return oracleAggregator.getMeanPrice(prices, SPREAD_TOLERANCE, MAX_SCORE_BPS);
+            return oracleAggregator.getReliablePrice(ernForUsdcOracles, _usdcAmount, SPREAD_TOLERANCE, MAX_SCORE_BPS);
         }
-    }
-
-    /**
-     * @dev Returns the {expectedErnAmount} for the specified {_usdcAmount} of USDC using
-     * the UniV3 TWAP.
-     */
-    function _getErnAmountForUsdcView(uint256 _usdcAmount) internal view returns (uint256 expectedErnAmount) {
-        if (_usdcAmount != 0) {
-            uint256[] memory prices = oracleAggregator.getTwapPricesView(ernForUsdcViewOracles, _usdcAmount);
-            return oracleAggregator.getMeanPrice(prices, SPREAD_TOLERANCE, MAX_SCORE_BPS);
-        }
-    }
-
-    /**
-     * @dev See above.
-     */
-    function getErnAmountForUsdcView(uint256 _usdcAmount) external view returns (uint256) {
-        return _getErnAmountForUsdcView(_usdcAmount);
     }
 
     /**
@@ -465,20 +446,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
         delete ernForUsdcOracles;
         for (uint256 i = 0; i < newRoutes.length; i++) {
             ernForUsdcOracles.push(newRoutes[i]);
-        }
-
-        // reset the view-only oracles)
-        delete ernForUsdcViewOracles;
-        // filter out the price feed oracles and set the view-only oracles
-        for (uint256 i = 0; i < newRoutes.length; i++) {
-            for (uint256 j = 0; j < newRoutes[i].oracles.length; j++) {
-                if (newRoutes[i].oracles[j].kind == OracleKind.PriceFeed) {
-                    break;
-                }
-                if (j == newRoutes[i].oracles.length - 1) {
-                    ernForUsdcViewOracles.push(newRoutes[i]);
-                }
-            }
         }
     }
 
