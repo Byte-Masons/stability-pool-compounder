@@ -34,6 +34,7 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin {
     error Oracle_InvalidKind();
     error Oracle_PricesSpreadTooHigh();
     error Oracle_PricesUnreliable();
+    error Oracle_InvalidInput();
 
     uint256 constant BPS = 10_000;
 
@@ -44,19 +45,23 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin {
         view
         returns (uint256 price)
     {
+        if (oracles.length == 0) revert Oracle_InvalidInput();
         uint256[] memory prices = new uint256[](oracles.length);
         for (uint256 i = 0; i < oracles.length; i++) {
             prices[i] = _fetchMultiHopPrice(oracles[i], amountIn, false);
         }
         if (prices.length == 1) {
             return prices[0];
-        }
-        if (prices.length == 2) {
+        } else if (prices.length == 2) {
+            /* The algorithm needs at least 3 prices to be reliable.
+             * When only 2 prices are available, we can craft a third price,
+             * by fetch the 2 oracles with a delay and computing their mean.
+             */
             uint256[] memory delayedPrices = new uint256[](2);
             for (uint256 i = 0; i < oracles.length; i++) {
                 delayedPrices[i] = _fetchMultiHopPrice(oracles[i], amountIn, true);
             }
-            (uint256 delayedMean, ) = getMean(delayedPrices, new bool[](2));
+            uint256 delayedMean = getMean(delayedPrices);
             uint256[] memory combinedPrices = new uint256[](3);
             combinedPrices[0] = prices[0];
             combinedPrices[2] = delayedMean;
@@ -141,7 +146,7 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin {
     {
         (bool[] memory isInvalid, uint256 mad, uint256 median) = _getValidityByZScore(prices, maxScoreBPS);
         uint256 nrOfValidPrices;
-        (mean, nrOfValidPrices) = getMean(prices, isInvalid);
+        (mean, nrOfValidPrices) = getMeanValid(prices, isInvalid);
         if (mad > (median * spreadTolerance) / BPS) revert Oracle_PricesSpreadTooHigh();
         // if more than 1/3 of the prices are invalid, the whole list is considered unreliable
         if ((prices.length - nrOfValidPrices) > ((prices.length) / 3)) revert Oracle_PricesUnreliable();
@@ -160,10 +165,18 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin {
     {
         (mad, median) = getMAD(prices);
         isInvalid = new bool[](prices.length);
+        if (mad != 0) {
         for (uint256 i = 0; i < prices.length; i++) {
             int256 score = (int256(prices[i]) - int256(median)) * int256(BPS) / int256(mad);
             isInvalid[i] = score < -int256(maxScoreBPS) || score > int256(maxScoreBPS);
         }
+        } else {
+            // if the MAD is 0, more than half of the prices are the same
+            for (uint256 i = 0; i < prices.length; i++) {
+                isInvalid[i] = prices[i] != median;
+            }
+        }
+
         return (isInvalid, mad, median);
     }
 
@@ -209,10 +222,15 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin {
             }
         }
         quickSort(deviations, 0, int256(n - 1));
+
+        if (n % 2 == 0) {
+            mad = (deviations[n / 2 - 1] + deviations[n / 2]) / 2;
+        } else {
         mad = deviations[n / 2];
+        }
     }
 
-    function getMean(uint256[] memory prices, bool[] memory isInvalid)
+    function getMeanValid(uint256[] memory prices, bool[] memory isInvalid)
         internal
         pure
         returns (uint256 mean, uint256 nrValidPrices)
@@ -228,6 +246,13 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin {
         if (nrValidPrices > 0) mean = sum / nrValidPrices;
     }
 
+    function getMean(uint256[] memory prices) internal pure returns (uint256 mean) {
+        uint256 sum = 0;
+        for (uint256 i = 0; i < prices.length; i++) {
+            sum += prices[i];
+        }
+        mean = sum / prices.length;
+    }
 
     // @notice Fetches the price from a Chainlink oracle
     // @param source Chainlink oracle address
@@ -236,13 +261,12 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin {
     // @param amountIn Input amount of the base token
     function getChainlinkPrice(address source, uint256 decimalOffset, address tokenIn, uint256 amountIn) internal view returns (uint256 price) {
         AggregatorV3Interface chainlinkOracle = AggregatorV3Interface(source);
-        (, int256 answer, , , ) = chainlinkOracle.latestRoundData();
+        (, int256 answer,,,) = chainlinkOracle.latestRoundData();
         uint8 chainlinkDecimals = chainlinkOracle.decimals();
         if (tokenIn == address(0)) {
-            price = amountIn * uint256(answer) / (10**uint256(chainlinkDecimals)) / (10**decimalOffset);
+            price = amountIn * uint256(answer) / (10 ** uint256(chainlinkDecimals)) / (10 ** decimalOffset);
         } else {
-            price = amountIn * (10**uint256(chainlinkDecimals)) / uint256(answer) * (10**decimalOffset);
+            price = amountIn * (10 ** uint256(chainlinkDecimals)) / uint256(answer) * (10 ** decimalOffset);
         }
     }
-
 }

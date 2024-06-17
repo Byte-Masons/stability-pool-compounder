@@ -28,7 +28,7 @@ contract OracleForkTests is Test {
     address WBTC_ADDRESS = 0x68f180fcCe6836688e9084f035309E29Bf0A2095;
 
     function setUp() public {
-        opFork = vm.createSelectFork("https://go.getblock.io/bec4b0dd7017435c8880f2cae8ea2d4d"/* , 118638228 */);
+        opFork = vm.createSelectFork(vm.envString("RPC"), 118638228);
 
         oracleAggregator = new OracleAggregator();
     }
@@ -36,14 +36,22 @@ contract OracleForkTests is Test {
     function test_uniV3() public {
         OracleRoute memory route;
         route.oracles = new Oracle[](1);
-        route.oracles[0] =
-            Oracle({source: WETH_OP_UNIV3_POOL, tokenIn: WETH_ADDRESS, windowOrDecimalOffset: 3600, kind: OracleKind.UniV3});
+        route.oracles[0] = Oracle({
+            source: WETH_OP_UNIV3_POOL,
+            tokenIn: WETH_ADDRESS,
+            windowOrDecimalOffset: 3600,
+            kind: OracleKind.UniV3
+        });
 
         uint256 price = oracleAggregator.fetchMultiHopPrice(route, 1e18);
         assertEq(price, 1194216670556036888562);
 
-        route.oracles[0] =
-            Oracle({source: WETH_OP_UNIV3_POOL, tokenIn: OP_ADDRESS, windowOrDecimalOffset: 3600, kind: OracleKind.UniV3});
+        route.oracles[0] = Oracle({
+            source: WETH_OP_UNIV3_POOL,
+            tokenIn: OP_ADDRESS,
+            windowOrDecimalOffset: 3600,
+            kind: OracleKind.UniV3
+        });
 
         uint256 price2 = oracleAggregator.fetchMultiHopPrice(route, 1e18);
         assertEq(price2, 837368983916789);
@@ -52,37 +60,50 @@ contract OracleForkTests is Test {
     function test_velo() public {
         OracleRoute memory route;
         route.oracles = new Oracle[](1);
-        route.oracles[0] =
-            Oracle({source: WETH_OP_VELO_POOL, tokenIn: WETH_ADDRESS, windowOrDecimalOffset: 3600, kind: OracleKind.Velo});
+        route.oracles[0] = Oracle({
+            source: WETH_OP_VELO_POOL,
+            tokenIn: WETH_ADDRESS,
+            windowOrDecimalOffset: 3600,
+            kind: OracleKind.Velo
+        });
 
-        uint256 expected = 1192245433864621830052;
+        uint256 expected = 1192241375504066768022;
 
         uint256 price = oracleAggregator.fetchMultiHopPrice(route, 1e18);
         assertEq(price, expected);
 
-        route.oracles[0] = Oracle({source: WETH_OP_VELO_POOL, tokenIn: OP_ADDRESS, windowOrDecimalOffset: 3600, kind: OracleKind.Velo});
+        route.oracles[0] =
+            Oracle({source: WETH_OP_VELO_POOL, tokenIn: OP_ADDRESS, windowOrDecimalOffset: 3600, kind: OracleKind.Velo});
 
         uint256 price2 = oracleAggregator.fetchMultiHopPrice(route, 1e18);
-        assertEq(price2, 838020130098509);
+        assertEq(price2, 838022983982765);
     }
 
     // velo stable pairs have a different pricing method
     function test_veloStable() public {
         OracleRoute memory route;
         route.oracles = new Oracle[](1);
-        route.oracles[0] =
-            Oracle({source: USDC_ERN_VELO_POOL, tokenIn: ERN_ADDRESS, windowOrDecimalOffset: 3600, kind: OracleKind.Velo});
+        route.oracles[0] = Oracle({
+            source: USDC_ERN_VELO_POOL,
+            tokenIn: ERN_ADDRESS,
+            windowOrDecimalOffset: 3600,
+            kind: OracleKind.Velo
+        });
 
         uint256 expected = 982575;
 
         uint256 price = oracleAggregator.fetchMultiHopPrice(route, 1e18);
         assertEq(price, expected);
 
-        route.oracles[0] =
-            Oracle({source: USDC_ERN_VELO_POOL, tokenIn: USDC_ADDRESS, windowOrDecimalOffset: 3600, kind: OracleKind.Velo});
+        route.oracles[0] = Oracle({
+            source: USDC_ERN_VELO_POOL,
+            tokenIn: USDC_ADDRESS,
+            windowOrDecimalOffset: 3600,
+            kind: OracleKind.Velo
+        });
 
         uint256 price2 = oracleAggregator.fetchMultiHopPrice(route, 1e6);
-        assertEq(price2, 1017733222640936418);
+        assertEq(price2, 1017732658860914652);
     }
 
     function test_balancer() public {
@@ -91,21 +112,25 @@ contract OracleForkTests is Test {
         OracleRoute memory route;
 
         route.oracles = new Oracle[](1);
-        route.oracles[0] = Oracle({source: VMEX_POOL, tokenIn: VMEX, windowOrDecimalOffset: 3600, kind: OracleKind.Balancer});
-        emit log_named_decimal_uint("price", oracleAggregator.fetchMultiHopPrice(route, 1e18), 18);
+        route.oracles[0] =
+            Oracle({source: VMEX_POOL, tokenIn: VMEX, windowOrDecimalOffset: 3600, kind: OracleKind.Balancer});
+        assertEq(oracleAggregator.fetchMultiHopPrice(route, 1e18), 0.000002101414223776 ether);
 
-        route.oracles[0] = Oracle({source: VMEX_POOL, tokenIn: WETH_ADDRESS, windowOrDecimalOffset: 3600, kind: OracleKind.Balancer});
-        emit log_named_decimal_uint("price", oracleAggregator.fetchMultiHopPrice(route, 1e18), 18);
+        route.oracles[0] =
+            Oracle({source: VMEX_POOL, tokenIn: WETH_ADDRESS, windowOrDecimalOffset: 3600, kind: OracleKind.Balancer});
+        assertEq(oracleAggregator.fetchMultiHopPrice(route, 1e18), 475870.006344163244524176 ether);
 
         // check decimal normalization
         vm.mockCall(VMEX, abi.encodeWithSelector(ERC20.decimals.selector), abi.encode(6));
 
         route.oracles = new Oracle[](1);
-        route.oracles[0] = Oracle({source: VMEX_POOL, tokenIn: VMEX, windowOrDecimalOffset: 3600, kind: OracleKind.Balancer});
-        emit log_named_decimal_uint("price", oracleAggregator.fetchMultiHopPrice(route, 1e18), 18);
+        route.oracles[0] =
+            Oracle({source: VMEX_POOL, tokenIn: VMEX, windowOrDecimalOffset: 3600, kind: OracleKind.Balancer});
+        assertEq(oracleAggregator.fetchMultiHopPrice(route, 1e18), 2101414.223776 ether);
 
-        route.oracles[0] = Oracle({source: VMEX_POOL, tokenIn: WETH_ADDRESS, windowOrDecimalOffset: 3600, kind: OracleKind.Balancer});
-        emit log_named_decimal_uint("price", oracleAggregator.fetchMultiHopPrice(route, 1e18), 18);
+        route.oracles[0] =
+            Oracle({source: VMEX_POOL, tokenIn: WETH_ADDRESS, windowOrDecimalOffset: 3600, kind: OracleKind.Balancer});
+        assertEq(oracleAggregator.fetchMultiHopPrice(route, 1e18), 0.000000475870006344 ether);
     }
 
     /* function test_priceFeed() public {
@@ -123,13 +148,21 @@ contract OracleForkTests is Test {
 
         OracleRoute memory _veloOracle;
         _veloOracle.oracles = new Oracle[](1);
-        _veloOracle.oracles[0] =
-            Oracle({source: USDC_ERN_VELO_POOL, tokenIn: USDC_ADDRESS, windowOrDecimalOffset: 3600, kind: OracleKind.Velo});
+        _veloOracle.oracles[0] = Oracle({
+            source: USDC_ERN_VELO_POOL,
+            tokenIn: USDC_ADDRESS,
+            windowOrDecimalOffset: 3600,
+            kind: OracleKind.Velo
+        });
 
         OracleRoute memory _uniV3Oracle;
         _uniV3Oracle.oracles = new Oracle[](1);
-        _uniV3Oracle.oracles[0] =
-            Oracle({source: USDC_ERN_UNIV3_POOL, tokenIn: USDC_ADDRESS, windowOrDecimalOffset: 3600, kind: OracleKind.UniV3});
+        _uniV3Oracle.oracles[0] = Oracle({
+            source: USDC_ERN_UNIV3_POOL,
+            tokenIn: USDC_ADDRESS,
+            windowOrDecimalOffset: 3600,
+            kind: OracleKind.UniV3
+        });
 
         // OracleRoute memory _priceFeedOracle;
         // _priceFeedOracle.oracles = new Oracle[](1);
@@ -142,22 +175,26 @@ contract OracleForkTests is Test {
 
         uint256[] memory prices = oracleAggregator.fetchTwapPrices(_ernForUsdcAllOracles, 10_000 * 1e6);
 
-
         uint256 priceUniV3 = oracleAggregator.fetchMultiHopPrice(_uniV3Oracle, 1e10);
         uint256 priceVelo = oracleAggregator.fetchMultiHopPrice(_veloOracle, 1e10);
 
-        console.log("priceVelo", priceVelo);
-        console.log("prices1  ", prices[0]);
+        assertEq(prices[0], priceVelo);
+        assertEq(prices[1], priceUniV3);
 
-        console.log("priceUniV3", priceUniV3);
-        console.log("prices2   ", prices[1]);
+        uint256 price = oracleAggregator.getReliablePrice(_ernForUsdcAllOracles, 1e10, 500, 25_000);
+        assertEq(price, 10161025621902873496771);
     }
-    
+
     function test_chainLink() public {
         OracleRoute memory route;
         route.oracles = new Oracle[](1);
-        route.oracles[0] = Oracle({source: 0x13e3Ee699D1909E989722E753853AE30b17e08c5, tokenIn: address(1), windowOrDecimalOffset: 12, kind: OracleKind.Chainlink});
+        route.oracles[0] = Oracle({
+            source: 0x13e3Ee699D1909E989722E753853AE30b17e08c5,
+            tokenIn: address(1),
+            windowOrDecimalOffset: 12,
+            kind: OracleKind.Chainlink
+        });
         uint256 price = oracleAggregator.fetchMultiHopPrice(route, 1e6);
-        console.log("price", price);
+        assertEq(price, 285000000000000);
     }
 }

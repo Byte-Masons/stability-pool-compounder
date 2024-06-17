@@ -16,7 +16,7 @@ contract OracleTest is Test {
 
     OracleAggregator oracleAggregator;
 
-    uint256 maxMadRelativeToMedianBPS = 500; // MADs can be at most 8% of the median
+    uint256 maxMadRelativeToMedianBPS = 500; // MADs can be at most 5% of the median
     uint256 maxScoreBPS = 25_000; // prices that are 2.5x MAD away from the median are rejected
 
     function setUp() public {
@@ -24,7 +24,6 @@ contract OracleTest is Test {
     }
 
     /// Math related functions
-
 
     function test_revertHighSpread3Values(uint256 price1, uint256 price2, uint256 price3) public {
         // avoid prices above 2**128

@@ -438,7 +438,7 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     }
 
     /**
-     * @dev Sets the period (in seconds) used to query the UniV3 TWAP.
+     * @dev Sets price oracle configuration.
      */
     function updateOracles(OracleRoute[] calldata newRoutes) public {
         _atLeastRole(DEFAULT_ADMIN_ROLE);
