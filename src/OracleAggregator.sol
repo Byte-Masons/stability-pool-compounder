@@ -86,10 +86,7 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin {
     /// @param route List of oracles for multihop price
     /// @param amountIn Input amount of the base token
     function fetchMultiHopPrice(OracleRoute memory route, uint256 amountIn) external view returns (uint256 price) {
-        for (uint256 i = 0; i < route.oracles.length; i++) {
-            price = _fetchPrice(route.oracles[i], amountIn, false);
-            amountIn = price;
-        }
+        _fetchMultiHopPrice(route, amountIn, false);
     }
 
     function fetchPrice(Oracle memory oracle, uint256 amountIn) external view returns (uint256 price) {

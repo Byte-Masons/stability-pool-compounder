@@ -44,7 +44,6 @@ contract ReaperStrategyStabilityPool is ReaperBaseStrategyv4 {
     uint256 acceptableTWAPLowerBound; // The normal lower price for the , reverts harvest if below
 
     OracleRoute[] internal ernForUsdcOracles;
-    OracleRoute[] internal ernForUsdcViewOracles;
 
     struct ExchangeSettings {
         address veloRouter;
