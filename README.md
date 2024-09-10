@@ -1,5 +1,7 @@
 # Reaper multistrategy vault
 
-An [ERC4626](https://eips.ethereum.org/EIPS/eip-4626) compliant vault using multistrategy (Yearn V2 style) architecture.
+A strategy contract for ERC4626 compliant vault (Yearn V2 style) architecture, that can manage assets, and claim and convert rewards from an external system. The strategy is responsible for managing users’ deposits so they can accrue rewards from the Stability Pool contract. During a harvest cycle, the strategy may claim multiple asset rewards from the Stability Pool and convert them into a singular asset. Firstly, all rewards are converted into USDC using a token Swapper mechanism. Then, USDC is converted into ERN. To avoid frontrunning attacks in this last exchange, a TWAP oracle is used. However, due to liquidity concerns and manipulability of the TWAP, an oracle aggregator solution was devised, capable of sourcing multiple prices from different pools and outputting a single reliable value. This solution has support for diverse AMM protocols.
 
-Run `npm i && git submodule update --init --recursive` after cloning to ensure all submodules are initialized recursively.
+## Velodrome Code
+
+The file `src/oracles/VeloTwapMixin.sol` contains code that is originally from the Velodrome [Pool.sol](https://github.com/velodrome-finance/contracts/blob/main/contracts/Pool.sol) contract, adapted to use memory variables and parameters rather than the pool's internal variables. This is because we cannot access these functions externally.

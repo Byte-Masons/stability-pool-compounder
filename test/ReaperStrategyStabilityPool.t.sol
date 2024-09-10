@@ -14,11 +14,13 @@ import "src/mocks/MockAggregator.sol";
 import "src/interfaces/ITroveManager.sol";
 import "src/interfaces/IStabilityPool.sol";
 import "src/interfaces/IAggregatorAdmin.sol";
+import "src/interfaces/ICommunityIssuance.sol";
 import {IUniswapV3Pool} from "src/interfaces/IUniswapV3Pool.sol";
 import {IStaticOracle} from "src/interfaces/IStaticOracle.sol";
 import {IERC20Mintable} from "src/interfaces/IERC20Mintable.sol";
 import {ERC1967Proxy} from "oz/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC20Upgradeable} from "oz-upgradeable/token/ERC20/IERC20Upgradeable.sol";
+import {OracleAggregator, OracleRoute} from "src/OracleAggregator.sol";
 
 contract ReaperStrategyStabilityPoolTest is Test {
     using stdStorage for StdStorage;
@@ -28,8 +30,10 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
     // Registry
     address public treasuryAddress = 0xeb9C9b785aA7818B2EBC8f9842926c4B9f707e4B;
-    address public stabilityPoolAddress = 0x8B147A2d4Fc3598079C64b8BF9Ad2f776786CFed;
-    address public priceFeedAddress = 0xC6b3Eea38Cbe0123202650fB49c59ec41a406427;
+    address public stabilityPoolAddress = 0xD839A111598d5e27BD8f7A1A18ce9Bf079F0c0a2;
+    address public communityIssuanceOwner = 0xf1a717766c1b2Ed3f63b602E6482dD699ce1C79C;
+    address public communityIssuanceAddress = 0x323A9C4CB4Be7A3c9d31209B0a2bAd56276bbf89;
+    address public priceFeedAddress = 0xadd6F326a395629926D9a535d809B5e3d8c7FE8d;
     address public priceFeedOwnerAddress = 0xf1a717766c1b2Ed3f63b602E6482dD699ce1C79C;
     address public troveManager = 0xd584A5E956106DB2fE74d56A0B14a9d64BE8DC93;
     address public veloRouter = 0xa062aE8A9c5e11aaA026fc2670B0D65cCc8B2858;
@@ -38,7 +42,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
     address public balVault = 0xBA12222222228d8Ba445958a75a0704d566BF2C8;
     address public uniV3Router = 0xE592427A0AEce92De3Edee1F18E0157C05861564;
     address public uniV2Router = 0xbeeF000000000000000000000000000000000000; // Any non-0 address when UniV2 router does not exist
-    address public veloUsdcErnPool = 0x5e4A183Fa83C52B1c55b11f2682f6a8421206633;
+    address public veloUsdcErnPool = 0x605cCE502dEe6BD201b493782e351e645D44abBB;
     address public uniV3UsdcErnPool = 0x4CE4a1a593Ea9f2e6B2c05016a00a2D300C9fFd8;
     address public chainlinkUsdcOracle = 0x16a9FA2FDa030272Ce99B29CF780dFA30361E0f3;
     address public uniV3TWAP = 0xB210CE856631EeEB767eFa666EC7C1C57738d438;
@@ -50,17 +54,17 @@ contract ReaperStrategyStabilityPoolTest is Test {
     address public wantAddress = 0xc5b001DC33727F8F26880B184090D3E252470D45;
     address public wethAddress = 0x4200000000000000000000000000000000000006;
     address public wbtcAddress = 0x68f180fcCe6836688e9084f035309E29Bf0A2095;
-    address public usdcAddress = 0x7F5c764cBc14f9669B88837ca1490cCa17c31607;
-    address public oathAddress = 0x39FdE572a18448F8139b7788099F0a0740f51205;
-    address public opAddress = 0x4200000000000000000000000000000000000042;
+    address public usdcAddress = 0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85;
+    address public oathAddress = 0x00e1724885473B63bCE08a9f0a52F35b0979e35A;
+    address public wstethAddress = 0x1F32b1c2345538c0c6f582fCB022739c4A194Ebb;
 
     address public strategistAddr = 0x1A20D7A31e5B3Bc5f02c8A146EF6f394502a10c4;
     address public wantHolderAddr = strategistAddr;
 
-    address public borrowerOperationsAddress = 0x0a4582d3d9ecBAb80a66DAd8A881BE3b771d3e5B;
-    address public oathOwner = 0x80A16016cC4A2E6a2CACA8a4a498b1699fF0f844;
+    address public borrowerOperationsAddress = 0xaA0B41B61f76587cf85155147d7F3B7725D14Eb3; // 0x0a4582d3d9ecBAb80a66DAd8A881BE3b771d3e5B;
+    address public oathOwner = 0xe432150cce91c13a887f7D836923d5597adD8E31;
     address public wbtcHolder = 0x85C31FFA3706d1cce9d525a00f1C7D4A2911754c;
-    address public opHolder = 0x790b4086D106Eafd913e71843AED987eFE291c92;
+    address public wstethHolder = 0x583f5777a69830fCB6F811a1b8e781D545D37923;
 
     bytes32 public balErnPoolId = 0x1d95129c18a8c91c464111fdf7d0eb241b37a9850002000000000000000000c1;
     bytes32 public oatsAndGrainPoolId = 0x1cc3e990b23a09fc9715aaf7ccf21c212a9cbc160001000000000000000000bd;
@@ -69,7 +73,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
     AggregatorV3Interface wbtcAggregator;
     AggregatorV3Interface wethAggregator;
-    AggregatorV3Interface opAggregator;
+    AggregatorV3Interface wstethAggregator;
     AggregatorV3Interface usdcAggregator;
 
     address[] keepers = [
@@ -104,6 +108,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
     ReaperStrategyStabilityPool public implementation;
     ERC1967Proxy public proxy;
     ReaperStrategyStabilityPool public wrappedProxy;
+    OracleAggregator public oracleAggregator;
 
     ISwapper public swapper;
 
@@ -113,18 +118,18 @@ contract ReaperStrategyStabilityPoolTest is Test {
     function setUp() public {
         // Forking
         string memory rpc = vm.envString("RPC");
-        optimismFork = vm.createSelectFork(rpc, 107994026);
+        optimismFork = vm.createSelectFork(rpc, 118425007 /*107994026*/ );
         assertEq(vm.activeFork(), optimismFork);
 
         // // Deploying stuff
-        ReaperSwapper swapperImpl = new ReaperSwapper();
-        ERC1967Proxy swapperProxy = new ERC1967Proxy(address(swapperImpl), "");
+        ERC1967Proxy swapperProxy = new ERC1967Proxy(address(new ReaperSwapper()), "");
         ReaperSwapper wrappedSwapperProxy = ReaperSwapper(address(swapperProxy));
         wrappedSwapperProxy.initialize(strategists, guardianAddress, superAdminAddress);
         swapper = ISwapper(address(swapperProxy));
 
-        vault =
-        new ReaperVaultV2(wantAddress, vaultName, vaultSymbol, vaultTvlCap, treasuryAddress, strategists, multisigRoles);
+        vault = new ReaperVaultV2(
+            wantAddress, vaultName, vaultSymbol, vaultTvlCap, treasuryAddress, strategists, multisigRoles
+        );
         implementation = new ReaperStrategyStabilityPool();
         proxy = new ERC1967Proxy(address(implementation), "");
         wrappedProxy = ReaperStrategyStabilityPool(address(proxy));
@@ -135,10 +140,6 @@ contract ReaperStrategyStabilityPoolTest is Test {
         exchangeSettings.uniV3Router = uniV3Router;
         exchangeSettings.uniV2Router = uniV2Router;
 
-        ReaperStrategyStabilityPool.Pools memory pools;
-        pools.stabilityPool = stabilityPoolAddress;
-        pools.uniV3UsdcErnPool = uniV3UsdcErnPool;
-
         address[] memory usdcErnPath = new address[](2);
         usdcErnPath[0] = usdcAddress;
         usdcErnPath[1] = wantAddress;
@@ -147,7 +148,20 @@ contract ReaperStrategyStabilityPoolTest is Test {
         tokens.want = wantAddress;
         tokens.usdc = usdcAddress;
 
-        uint256 allowedTWAPDiscrepancy = 500;
+        OracleRoute[] memory _ernForUsdcAllOracles = new OracleRoute[](2);
+
+        OracleRoute memory _veloOracle;
+        _veloOracle.oracles = new Oracle[](1);
+        _veloOracle.oracles[0] =
+            Oracle({source: veloUsdcErnPool, tokenIn: usdcAddress, windowOrDecimalOffset: 3600, kind: OracleKind.Velo});
+
+        OracleRoute memory _uniV3Oracle;
+        _uniV3Oracle.oracles = new Oracle[](1);
+        _uniV3Oracle.oracles[0] =
+            Oracle({source: uniV3UsdcErnPool, tokenIn: usdcAddress, windowOrDecimalOffset: 3600, kind: OracleKind.UniV3});
+
+        _ernForUsdcAllOracles[0] = _veloOracle;
+        _ernForUsdcAllOracles[1] = _uniV3Oracle;
 
         wrappedProxy.initialize(
             address(vault),
@@ -156,9 +170,10 @@ contract ReaperStrategyStabilityPoolTest is Test {
             multisigRoles,
             keepers,
             priceFeedAddress,
-            uniV3TWAP,
+            address(new OracleAggregator()),
+            _ernForUsdcAllOracles,
             exchangeSettings,
-            pools,
+            stabilityPoolAddress,
             tokens
         );
 
@@ -187,7 +202,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         vm.startPrank(strategistAddr);
         swapper.updateVeloSwapPath(usdcAddress, wantAddress, veloRouter, usdcErnRoute);
         swapper.updateUniV3SwapPath(usdcAddress, wantAddress, uniV3Router, usdcErnSwapData);
-        swapper.updateBalSwapPoolID(usdcAddress, wantAddress, balVault, balErnPoolId);
+        // swapper.updateBalSwapPoolID(usdcAddress, wantAddress, balVault, balErnPoolId);
 
         IVeloRouter.Route[] memory wethErnRoute = new IVeloRouter.Route[](2);
         wethErnRoute[0] =
@@ -205,17 +220,19 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
         IVeloRouter.Route[] memory oathErnRoute = new IVeloRouter.Route[](2);
         oathErnRoute[0] =
-            IVeloRouter.Route({from: oathAddress, to: usdcAddress, stable: false, factory: veloFactoryV2Default});
+            IVeloRouter.Route({from: oathAddress, to: wethAddress, stable: false, factory: veloFactoryV2Default});
         oathErnRoute[1] =
-            IVeloRouter.Route({from: usdcAddress, to: wantAddress, stable: true, factory: veloFactoryV2Default});
+            IVeloRouter.Route({from: wethAddress, to: wantAddress, stable: false, factory: veloFactoryV2Default});
         swapper.updateVeloSwapPath(oathAddress, wantAddress, veloRouter, oathErnRoute);
 
         IVeloRouter.Route[] memory oathUsdcRoute = new IVeloRouter.Route[](2);
         oathUsdcRoute[0] =
-            IVeloRouter.Route({from: oathAddress, to: usdcAddress, stable: false, factory: veloFactoryV2Default});
-        //swapper.updateVeloSwapPath(oathAddress, usdcAddress, veloRouter, oathUsdcRoute);
+            IVeloRouter.Route({from: oathAddress, to: wethAddress, stable: false, factory: veloFactoryV2Default});
+        oathUsdcRoute[1] =
+            IVeloRouter.Route({from: wethAddress, to: usdcAddress, stable: false, factory: veloFactoryV2Default});
+        swapper.updateVeloSwapPath(oathAddress, usdcAddress, veloRouter, oathUsdcRoute);
 
-        swapper.updateBalSwapPoolID(oathAddress, usdcAddress, balVault, oatsAndGrainPoolId);
+        //swapper.updateBalSwapPoolID(oathAddress, usdcAddress, balVault, oatsAndGrainPoolId);
 
         address[] memory wethUsdcPath = new address[](2);
         wethUsdcPath[0] = wethAddress;
@@ -235,32 +252,32 @@ contract ReaperStrategyStabilityPoolTest is Test {
         UniV3SwapData memory wbtcUsdcSwapData = UniV3SwapData({path: wbtcUsdcPath, fees: wbtcUsdcFees});
         swapper.updateUniV3SwapPath(wbtcAddress, usdcAddress, uniV3Router, wbtcUsdcSwapData);
 
-        address[] memory opUsdcPath = new address[](3);
-        opUsdcPath[0] = opAddress;
-        opUsdcPath[1] = wethAddress;
-        opUsdcPath[2] = usdcAddress;
-        uint24[] memory opUsdcFees = new uint24[](2);
-        opUsdcFees[0] = 3000;
-        opUsdcFees[1] = 500;
-        UniV3SwapData memory opUsdcSwapData = UniV3SwapData({path: opUsdcPath, fees: opUsdcFees});
-        swapper.updateUniV3SwapPath(opAddress, usdcAddress, uniV3Router, opUsdcSwapData);
+        address[] memory wstethUsdcPath = new address[](3);
+        wstethUsdcPath[0] = wstethAddress;
+        wstethUsdcPath[1] = wethAddress;
+        wstethUsdcPath[2] = usdcAddress;
+        uint24[] memory wstethUsdcFees = new uint24[](2);
+        wstethUsdcFees[0] = 3000;
+        wstethUsdcFees[1] = 500;
+        UniV3SwapData memory wstethUsdcSwapData = UniV3SwapData({path: wstethUsdcPath, fees: wstethUsdcFees});
+        swapper.updateUniV3SwapPath(wstethAddress, usdcAddress, uniV3Router, wstethUsdcSwapData);
         vm.stopPrank();
 
-        // Register CL aggregators in Swapper for WETH, WBTC, OP, and USDC
+        // Register CL aggregators in Swapper for WETH, WBTC, WSTETH, and USDC
         // We set high timeouts since we do a lot of manual time skipping in tests
         // 2 days should be plenty = 2 * 24 * 60 * 60 = 172800
         // Since our strategy assumes that USDC ~= ERN, we reuse the USDC aggregator for ERN
         vm.startPrank(superAdminAddress);
         swapper.updateTokenAggregator(wethAddress, 0x13e3Ee699D1909E989722E753853AE30b17e08c5, 172800);
         swapper.updateTokenAggregator(wbtcAddress, 0xD702DD976Fb76Fffc2D3963D037dfDae5b04E593, 172800);
-        swapper.updateTokenAggregator(opAddress, 0x0D276FC14719f9292D5C1eA2198673d1f4269246, 172800);
+        swapper.updateTokenAggregator(wstethAddress, 0x698B585CbC4407e2D54aa898B2600B53C68958f7, 172800);
         swapper.updateTokenAggregator(usdcAddress, 0x16a9FA2FDa030272Ce99B29CF780dFA30361E0f3, 172800);
         vm.stopPrank();
 
         // set our swap steps
         // step 1: weth -> usdc using univ3 w/ CL aggregators and minAmountOutBPS as 9950
         // step 2: wbtc -> usdc using univ3 w/ CL aggregators and minAmountOutBPS as 9950
-        // step 3: op -> usdc using univ3 w/ CL aggregators and minAmountOutBPS as 9950
+        // step 3: wsteth -> usdc using univ3 w/ CL aggregators and minAmountOutBPS as 9950
         // step 4: oath -> usdc using velo w/ 0 for minAmountOut
         ReaperBaseStrategyv4.SwapStep memory step1 = ReaperBaseStrategyv4.SwapStep({
             exType: ReaperBaseStrategyv4.ExchangeType.UniV3,
@@ -278,17 +295,17 @@ contract ReaperStrategyStabilityPoolTest is Test {
         });
         ReaperBaseStrategyv4.SwapStep memory step3 = ReaperBaseStrategyv4.SwapStep({
             exType: ReaperBaseStrategyv4.ExchangeType.UniV3,
-            start: opAddress,
+            start: wstethAddress,
             end: usdcAddress,
             minAmountOutData: MinAmountOutData({kind: MinAmountOutKind.ChainlinkBased, absoluteOrBPSValue: 9950}),
             exchangeAddress: uniV3Router
         });
         ReaperBaseStrategyv4.SwapStep memory step4 = ReaperBaseStrategyv4.SwapStep({
-            exType: ReaperBaseStrategyv4.ExchangeType.Bal,
+            exType: ReaperBaseStrategyv4.ExchangeType.VeloSolid,
             start: oathAddress,
             end: usdcAddress,
             minAmountOutData: MinAmountOutData({kind: MinAmountOutKind.Absolute, absoluteOrBPSValue: 0}),
-            exchangeAddress: balVault
+            exchangeAddress: veloRouter
         });
         ReaperBaseStrategyv4.SwapStep[] memory steps = new ReaperBaseStrategyv4.SwapStep[](4);
         steps[0] = step1;
@@ -313,17 +330,23 @@ contract ReaperStrategyStabilityPoolTest is Test {
         vm.prank(wbtcHolder);
         IERC20Mintable(wbtcAddress).approve(address(wrappedProxy), wbtcBalance);
 
-        uint256 opBalance = IERC20Mintable(opAddress).balanceOf(opHolder);
-        console.log("approving: ", opBalance);
-        vm.prank(opHolder);
-        IERC20Mintable(opAddress).approve(address(wrappedProxy), opBalance);
+        uint256 wstethBalance = IERC20Mintable(wstethAddress).balanceOf(wstethHolder);
+        console.log("approving: ", wstethBalance);
+        vm.prank(wstethHolder);
+        IERC20Mintable(wstethAddress).approve(address(wrappedProxy), wstethBalance);
 
         wrappedProxy.updateErnMinAmountOutBPS(9950);
         wrappedProxy.updateUsdcToErnExchange(ReaperBaseStrategyv4.ExchangeType.VeloSolid);
 
+        deal(oathAddress, communityIssuanceOwner, 10_000 ether);
+        vm.startPrank(communityIssuanceOwner);
+        IERC20Mintable(oathAddress).approve(communityIssuanceAddress, 10_000 ether);
+        ICommunityIssuance(communityIssuanceAddress).fund(10_000 ether);
+        vm.stopPrank();
+
         wbtcAggregator = AggregatorV3Interface(IPriceFeed(priceFeedAddress).priceAggregator(wbtcAddress));
         wethAggregator = AggregatorV3Interface(IPriceFeed(priceFeedAddress).priceAggregator(wethAddress));
-        opAggregator = AggregatorV3Interface(IPriceFeed(priceFeedAddress).priceAggregator(opAddress));
+        wstethAggregator = AggregatorV3Interface(IPriceFeed(priceFeedAddress).priceAggregator(wstethAddress));
         usdcAggregator = AggregatorV3Interface(chainlinkUsdcOracle);
     }
 
@@ -647,6 +670,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         vaultWantBalance = want.balanceOf(address(vault));
         strategyBalance = wrappedProxy.balanceOf();
         assertGt(vaultBalance, depositAmount);
+        console.log(vaultBalance, depositAmount);
         assertGt(vaultWantBalance, 30 ether);
         assertEq(strategyBalance, 70 ether);
 
@@ -779,7 +803,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
         console.log("poolBalanceBefore: ", poolBalanceBefore);
         console.log("poolBalanceAfter: ", poolBalanceAfter);
 
-        uint32 currentUniV3TWAPPeriod = wrappedProxy.uniV3TWAPPeriod();
+        /// @TODO
+        /* uint32 currentUniV3TWAPPeriod = wrappedProxy.uniV3TWAPPeriod();
 
         address[] memory pools = new address[](1);
         pools[0] = address(uniV3UsdcErnPool);
@@ -788,7 +813,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         );
         // Values should be the same because the usdc balance will be valued
         // using the Velo TWAP
-        assertEq(valueInCollateralAfter, priceQuote);
+        assertEq(valueInCollateralAfter, priceQuote); */
 
         uint256 compoundingFeeMarginBPS = wrappedProxy.compoundingFeeMarginBPS();
         uint256 expectedPoolBalance = valueInCollateralAfter * compoundingFeeMarginBPS / BPS_UNIT;
@@ -823,10 +848,10 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
         uint256 wbtcAmount = 1 * (10 ** 8);
         uint256 wethAmount = 10 ether;
-        uint256 opAmount = 1000 ether;
+        uint256 wstethAmount = 10 ether;
         deal({token: wbtcAddress, to: address(wrappedProxy), give: wbtcAmount});
         deal({token: wethAddress, to: address(wrappedProxy), give: wethAmount});
-        deal({token: opAddress, to: address(wrappedProxy), give: opAmount});
+        deal({token: wstethAddress, to: address(wrappedProxy), give: wstethAmount});
 
         // uint256 valueInCollateralAfter = wrappedProxy.getERNValueOfCollateralGain();
         uint256 poolBalanceAfter = wrappedProxy.balanceOfPool();
@@ -839,26 +864,27 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
         // console.log("wbtcAggregator: ", wbtcAggregator);
         // console.log("wethAggregator: ", wethAggregator);
-        // console.log("opAggregator: ", opAggregator);
+        // console.log("wstethAggregator: ", wstethAggregator);
         (, int256 wbtcPrice,,,) = wbtcAggregator.latestRoundData();
         (, int256 wethPrice,,,) = wethAggregator.latestRoundData();
-        (, int256 opPrice,,,) = opAggregator.latestRoundData();
+        (, int256 wstethPrice,,,) = wstethAggregator.latestRoundData();
         console.log("wbtcPrice: ");
         console.logInt(wbtcPrice);
         console.log("wethPrice: ");
         console.logInt(wethPrice);
-        console.log("opPrice: ");
-        console.logInt(opPrice);
+        console.log("wstethPrice: ");
+        console.logInt(wstethPrice);
 
         // All usd values must have 18 decimals for comparison.
-        // WETH and OP already have 18 decimals, but we need to scale WBTC.
+        // WETH and WSTETH already have 18 decimals, but we need to scale WBTC.
         uint256 wbtcUsdValue = wbtcAmount * uint256(wbtcPrice) * (10 ** 2);
         uint256 wethUsdValue = wethAmount * uint256(wethPrice) / (10 ** 8);
-        uint256 opUsdValue = opAmount * uint256(opPrice) / (10 ** 8);
-        uint256 expectedUsdValueInCollateral = wbtcUsdValue + wethUsdValue + opUsdValue;
+        uint256 wstethUsdValue = wstethAmount * uint256(wstethPrice) / (10 ** 8);
+        uint256 expectedUsdValueInCollateral = wbtcUsdValue + wethUsdValue + wstethUsdValue;
+
         console.log("wbtcUsdValue: ", wbtcUsdValue);
         console.log("wethUsdValue: ", wethUsdValue);
-        console.log("opUsdValue: ", opUsdValue);
+        console.log("wstethUsdValue:", wstethUsdValue);
 
         uint256 usdValueInCollateral = wrappedProxy.getUSDValueOfCollateralGain();
         console.log("expectedUsdValueInCollateral: ", expectedUsdValueInCollateral);
@@ -873,7 +899,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
         uint256 usdcAmount = ((usdValueInCollateral / (10 ** 12)) * (10 ** 8)) / usdcPrice;
         console.log("usdcAmount: ", usdcAmount);
 
-        address[] memory pools = new address[](1);
+        /// @TODO
+        /* address[] memory pools = new address[](1);
         pools[0] = address(uniV3UsdcErnPool);
         uint32 twapPeriod = wrappedProxy.uniV3TWAPPeriod();
         console.log("twapPeriod: ", twapPeriod);
@@ -887,7 +914,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
         assertApproxEqRel(ernAmount, wantValueInCollateral, 1e8);
 
         uint256 compoundingFeeMarginBPS = wrappedProxy.compoundingFeeMarginBPS();
-        uint256 expectedPoolIncrease = ernAmount * compoundingFeeMarginBPS / BPS_UNIT;
+        uint256 expectedPoolIncrease = ernAmount * compoundingFeeMarginBPS / BPS_UNIT; */
+
         // console.log("poolBalanceIncrease: ", poolBalanceAfter - poolBalanceBefore);
         // console.log("expectedPoolIncrease: ", expectedPoolIncrease);
         // assertEq(poolBalanceAfter - poolBalanceBefore, expectedPoolIncrease);
@@ -917,10 +945,10 @@ contract ReaperStrategyStabilityPoolTest is Test {
 
         uint256 wbtcAmount = 1 * (10 ** 8);
         uint256 wethAmount = 10 ether;
-        uint256 opAmount = 1000 ether;
+        uint256 wstethAmount = 10 ether;
         deal({token: wbtcAddress, to: address(wrappedProxy), give: wbtcAmount});
         deal({token: wethAddress, to: address(wrappedProxy), give: wethAmount});
-        deal({token: opAddress, to: address(wrappedProxy), give: opAmount});
+        deal({token: wstethAddress, to: address(wrappedProxy), give: wstethAmount});
 
         uint256 valueInCollateral = wrappedProxy.getERNValueOfCollateralGain();
         console.log("valueInCollateral: ", valueInCollateral);
@@ -968,7 +996,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
     //     console.log("priceQuote10: ", priceQuote10 / 1_000_000_000);
     // }
 
-    function testUniV3TWAPMultipleSwaps() public {
+    // @TODO
+    /* function testUniV3TWAPMultipleSwaps() public {
         uint128 usdcUnit = 10 ** 6;
         uint32 period = 120;
         uint256 timeToSkip = 20;
@@ -1051,7 +1080,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         priceQuoteSpot = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, 0);
         console.log("priceQuote9: ", priceQuote);
         console.log("priceQuoteSpot9: ", priceQuoteSpot);
-    }
+    } */
 
     function testUniV3TWAPSingleSwap() public {
         uint32 period = 3600;
@@ -1078,7 +1107,8 @@ contract ReaperStrategyStabilityPoolTest is Test {
         //     _skipBlockAndTime(1);
         // }
 
-        uint256 priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
+        /// @TODO
+        /* uint256 priceQuote = wrappedProxy.getErnAmountForUsdcUniV3(usdcUnit, period);
 
         console.log("priceQuote: ", priceQuote);
 
@@ -1102,10 +1132,11 @@ contract ReaperStrategyStabilityPoolTest is Test {
         console.log("priceQuoteQuarter: ", priceQuoteQuarter);
         console.log("priceQuoteEigth: ", priceQuoteEigth);
         console.log("priceQuoteSixteenth: ", priceQuoteSixteenth);
-        console.log("priceQuoteSpot1: ", priceQuoteSpot);
+        console.log("priceQuoteSpot1: ", priceQuoteSpot); */
     }
 
-    function testUpdateUniV3TWAPPeriod() public {
+    /* function testUpdateUniV3TWAPPeriod() public {
+    /// @TODO
         uint32 period = 36000;
         wrappedProxy.updateUniV3TWAPPeriod(period);
 
@@ -1124,9 +1155,10 @@ contract ReaperStrategyStabilityPoolTest is Test {
         period = type(uint32).max;
         vm.expectRevert(bytes("OLD"));
         wrappedProxy.updateUniV3TWAPPeriod(period);
-    }
+    } */
 
-    function testChangeTWAPPeriod() public {
+    /* function testChangeTWAPPeriod() public {
+        /// @TODO
         uint32 oldPeriod = 36000;
         wrappedProxy.updateUniV3TWAPPeriod(oldPeriod);
 
@@ -1156,7 +1188,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         wrappedProxy.updateUniV3TWAPPeriod(newPeriod);
         vm.stopPrank();
         wrappedProxy.updateUniV3TWAPPeriod(oldPeriod);
-    }
+    } */
 
     function liquidateTroves(address asset) internal {
         ITroveManager(troveManager).liquidateTroves(asset, 100);
@@ -1189,7 +1221,7 @@ contract ReaperStrategyStabilityPoolTest is Test {
         uint256 minAmountOut = 0;
 
         bytes memory pathBytes = _encodePathV3(path, fees);
-        TransferHelper.safeApprove(path[0], uniV3Router, _amount);
+        // TransferHelper.safeApprove(path[0], uniV3Router, _amount);
         ISwapRouter.ExactInputParams memory params = ISwapRouter.ExactInputParams({
             path: pathBytes,
             recipient: address(this),
