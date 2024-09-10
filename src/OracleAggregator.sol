@@ -5,7 +5,7 @@ pragma solidity ^0.8.0;
 import {VeloTwapMixin} from "./oracles/VeloTwapMixin.sol";
 import {UniV3TwapMixin} from "./oracles/UniV3TwapMixin.sol";
 import {BalancerTwapMixin} from "./oracles/BalancerTwapMixin.sol";
-import {AggregatorV3Interface} from "./interfaces/AggregatorV3Interface.sol";
+import {ChainlinkAdapterMixin} from "./oracles/ChainlinkAdapterMixin.sol";
 import {ERC20} from "oz/token/ERC20/ERC20.sol"; // has decimals(), as opposed to IERC20
 import {MathUpgradeable} from "oz-upgradeable/utils/math/MathUpgradeable.sol";
 
@@ -30,7 +30,7 @@ struct Oracle {
 // This contract contains tools for computing TWAP values and
 // making averages between the results, for more reliable prices.
 // Has support for multiple oracles
-contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin {
+contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin, ChainlinkAdapterMixin {
     error Oracle_InvalidKind();
     error Oracle_PricesSpreadTooHigh();
     error Oracle_PricesUnreliable();
@@ -40,11 +40,12 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin {
 
     // @notice Fetches the mean price of a list of oracles, filtering out outliers
     // and checking if the prices are reliable.
-    function getReliablePrice(OracleRoute[] memory oracles, uint256 amountIn, uint256 spreadTolerance, uint256 maxScoreBPS)
-        external
-        view
-        returns (uint256 price)
-    {
+    function getReliablePrice(
+        OracleRoute[] memory oracles,
+        uint256 amountIn,
+        uint256 spreadTolerance,
+        uint256 maxScoreBPS
+    ) external view returns (uint256 price) {
         if (oracles.length == 0) revert Oracle_InvalidInput();
         uint256[] memory prices = new uint256[](oracles.length);
         for (uint256 i = 0; i < oracles.length; i++) {
@@ -86,7 +87,7 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin {
     /// @param route List of oracles for multihop price
     /// @param amountIn Input amount of the base token
     function fetchMultiHopPrice(OracleRoute memory route, uint256 amountIn) external view returns (uint256 price) {
-        _fetchMultiHopPrice(route, amountIn, false);
+        return _fetchMultiHopPrice(route, amountIn, false);
     }
 
     function fetchPrice(Oracle memory oracle, uint256 amountIn) external view returns (uint256 price) {
@@ -95,7 +96,11 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin {
 
     /// @param route List of oracles for multihop price
     /// @param amountIn Input amount of the base token
-    function _fetchMultiHopPrice(OracleRoute memory route, uint256 amountIn, bool delayWindow) internal view returns (uint256 price) {
+    function _fetchMultiHopPrice(OracleRoute memory route, uint256 amountIn, bool delayWindow)
+        internal
+        view
+        returns (uint256 price)
+    {
         for (uint256 i = 0; i < route.oracles.length; i++) {
             price = _fetchPrice(route.oracles[i], amountIn, delayWindow);
             amountIn = price;
@@ -105,7 +110,11 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin {
     /// @param oracle Kind of oracle to use -- see OracleKind
     /// @param amountIn Input amount of the base token
     /// @param delayWindow If true, the price is calculated with a delayed window - used for 2 price comparisons - incompatible with Chainlink
-    function _fetchPrice(Oracle memory oracle, uint256 amountIn, bool delayWindow) internal view returns (uint256 price) {
+    function _fetchPrice(Oracle memory oracle, uint256 amountIn, bool delayWindow)
+        internal
+        view
+        returns (uint256 price)
+    {
         uint32 period;
         uint32 ago;
         if (delayWindow) {
@@ -115,7 +124,7 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin {
             period = uint32(oracle.windowOrDecimalOffset);
             ago = 0;
         }
-        
+
         if (oracle.kind == OracleKind.Velo) {
             return getVeloPrice(oracle.source, oracle.tokenIn, period, ago, amountIn);
         } else if (oracle.kind == OracleKind.UniV3) {
@@ -163,10 +172,10 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin {
         (mad, median) = getMAD(prices);
         isInvalid = new bool[](prices.length);
         if (mad != 0) {
-        for (uint256 i = 0; i < prices.length; i++) {
-            int256 score = (int256(prices[i]) - int256(median)) * int256(BPS) / int256(mad);
-            isInvalid[i] = score < -int256(maxScoreBPS) || score > int256(maxScoreBPS);
-        }
+            for (uint256 i = 0; i < prices.length; i++) {
+                int256 score = (int256(prices[i]) - int256(median)) * int256(BPS) / int256(mad);
+                isInvalid[i] = score < -int256(maxScoreBPS) || score > int256(maxScoreBPS);
+            }
         } else {
             // if the MAD is 0, more than half of the prices are the same
             for (uint256 i = 0; i < prices.length; i++) {
@@ -223,7 +232,7 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin {
         if (n % 2 == 0) {
             mad = (deviations[n / 2 - 1] + deviations[n / 2]) / 2;
         } else {
-        mad = deviations[n / 2];
+            mad = deviations[n / 2];
         }
     }
 
@@ -249,21 +258,5 @@ contract OracleAggregator is VeloTwapMixin, UniV3TwapMixin, BalancerTwapMixin {
             sum += prices[i];
         }
         mean = sum / prices.length;
-    }
-
-    // @notice Fetches the price from a Chainlink oracle
-    // @param source Chainlink oracle address
-    // @param tokenIn address(0) for price, address(1) for inverted price
-    // @param decimalOffset Difference between tokenIn and tokenOut decimals
-    // @param amountIn Input amount of the base token
-    function getChainlinkPrice(address source, uint256 decimalOffset, address tokenIn, uint256 amountIn) internal view returns (uint256 price) {
-        AggregatorV3Interface chainlinkOracle = AggregatorV3Interface(source);
-        (, int256 answer,,,) = chainlinkOracle.latestRoundData();
-        uint8 chainlinkDecimals = chainlinkOracle.decimals();
-        if (tokenIn == address(0)) {
-            price = amountIn * uint256(answer) / (10 ** uint256(chainlinkDecimals)) / (10 ** decimalOffset);
-        } else {
-            price = amountIn * (10 ** uint256(chainlinkDecimals)) / uint256(answer) * (10 ** decimalOffset);
-        }
     }
 }
